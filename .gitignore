@@ -1,0 +1,20 @@
+//
+//  .gitignore
+//  focus
+//
+//  Created by 이동언 on 3/13/26.
+//
+
+# CocoaPods
+Pods/
+
+# Frameworks
+*.framework
+*.xcframework
+
+# Xcode
+DerivedData/
+.build/
+xcuserdata/
+*.xcworkspace
+!*.xcodeproj/project.pbxproj
