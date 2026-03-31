@@ -1,10 +1,3 @@
-//
-//  .gitignore
-//  focus
-//
-//  Created by 이동언 on 3/13/26.
-//
-
 # CocoaPods
 Pods/
 
@@ -18,3 +11,11 @@ DerivedData/
 xcuserdata/
 *.xcworkspace
 !*.xcodeproj/project.pbxproj
+
+# Local IDE / tooling
+.idea/
+.swift-module-cache/
+.codex/skills/
+__pycache__/
+*.pyc
+.DS_Store
