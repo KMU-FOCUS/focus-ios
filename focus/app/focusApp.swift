@@ -11,33 +11,56 @@ import UIKit
 @main
 struct FocusApp: App {
     @UIApplicationDelegateAdaptor(FocusAppDelegate.self) private var appDelegate
+    @Environment(\.scenePhase) private var scenePhase
     @State private var showsMainPage = false
+    @State private var showsPreviewMainPage = false
     // Temporary switch for previewing a generated design system without touching live screens.
     private let debugLaunchRoute: FocusLaunchRoute = .designSystemPreview
 
     var body: some Scene {
         WindowGroup {
-            switch debugLaunchRoute {
-            case .appFlow:
-                ZStack {
-                    if showsMainPage {
-                        ContentView()
-                            .modifier(AppOrientationModifier(mask: .landscapeRight, rotateTo: .landscapeRight))
+            Group {
+                switch debugLaunchRoute {
+                case .appFlow:
+                    ZStack {
+                        if showsMainPage {
+                            ContentView()
+                                .modifier(AppOrientationModifier(mask: .landscapeRight, rotateTo: .landscapeRight))
+                                .transition(.opacity)
+                        } else {
+                            StartView(onTapPrepare: {
+                                withAnimation(.easeInOut(duration: 0.25)) {
+                                    showsMainPage = true
+                                }
+                            })
+                            .modifier(AppOrientationModifier(mask: .portrait, rotateTo: .portrait))
                             .transition(.opacity)
-                    } else {
-                        StartView(onTapPrepare: {
-                            withAnimation(.easeInOut(duration: 0.25)) {
-                                showsMainPage = true
-                            }
-                        })
-                        .modifier(AppOrientationModifier(mask: .portrait, rotateTo: .portrait))
-                        .transition(.opacity)
+                        }
+                    }
+
+                case .designSystemPreview:
+                    ZStack {
+                        if showsPreviewMainPage {
+                            DesignSystemTestView()
+                                .modifier(AppOrientationModifier(mask: .landscapeRight, rotateTo: .landscapeRight))
+                                .transition(.opacity)
+                        } else {
+                            LaunchIntroView(onTapContinue: {
+                                withAnimation(.easeInOut(duration: 0.25)) {
+                                    showsPreviewMainPage = true
+                                }
+                            })
+                            .modifier(AppOrientationModifier(mask: .portrait, rotateTo: .portrait))
+                            .transition(.opacity)
+                        }
                     }
                 }
-
-            case .designSystemPreview:
-                DesignSystemTestView()
-                    .modifier(AppOrientationModifier(mask: .portrait, rotateTo: .portrait))
+            }
+            .onAppear {
+                ScreenWakeController.update(for: scenePhase)
+            }
+            .onChange(of: scenePhase) { _, newPhase in
+                ScreenWakeController.update(for: newPhase)
             }
         }
     }
@@ -85,5 +108,11 @@ private enum AppOrientationController {
         }
 
         UINavigationController.attemptRotationToDeviceOrientation()
+    }
+}
+
+private enum ScreenWakeController {
+    static func update(for phase: ScenePhase) {
+        UIApplication.shared.isIdleTimerDisabled = (phase == .active)
     }
 }

@@ -590,9 +590,9 @@ enum PrivacyMenuMode: String, CaseIterable, Identifiable {
         case .avatar:
             return "아바타"
         case .mosaic:
-            return "모자이크"
+            return "블러"
         case .disabled:
-            return "효과없음"
+            return "비활성화"
         }
     }
 }
