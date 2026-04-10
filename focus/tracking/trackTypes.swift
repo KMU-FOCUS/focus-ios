@@ -63,11 +63,13 @@ enum TrackCost {
             return nil
         }
 
-        var cosineDistance: Float = 1.0
+        var cosineDistance: Float = 0
+        var shouldValidateCosineDistance = false
 
         if let trackTDMM = track.tdmm, let detectionTDMM {
             let similarity = cosineSimilarity(trackTDMM.idVector, detectionTDMM.idVector)
             cosineDistance = 1 - similarity
+            shouldValidateCosineDistance = true
         }
 
         let cosineThreshold: Float
@@ -77,7 +79,7 @@ enum TrackCost {
             cosineThreshold = FocusConstants.maxCosineDistance
         }
 
-        guard cosineDistance <= cosineThreshold else {
+        if shouldValidateCosineDistance && cosineDistance > cosineThreshold {
             return nil
         }
 

@@ -20,6 +20,7 @@ struct TrackedFace: Equatable, Sendable {
     var landmarks: FaceLandmarks5?
     var tdmm: TDMMCoefficients?
     var label: TrackLabel
+    var ownerID: UUID?
     var age: Int
     var missedFrames: Int
     var frontalEmbeddingSamples: [[Float]]
@@ -61,4 +62,9 @@ struct PipelineDebugSnapshot: Sendable {
     let trackedFaceCount: Int
     let metadataFaceCount: Int
     let ptsUs: Int64
+}
+
+struct PipelineSessionOutputs: Sendable {
+    let recordingURL: URL?
+    let metadataURL: URL?
 }

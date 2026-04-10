@@ -11,7 +11,6 @@ import AVFoundation
 struct DesignSystemTestView: View {
     @StateObject private var viewModel = FocusAppViewModel()
     @State private var isMenuPresented = false
-    @State private var ownerProfiles = PreviewOwnerProfile.samples
 
     var body: some View {
         ZStack {
@@ -27,6 +26,15 @@ struct DesignSystemTestView: View {
             topStatusCluster
                 .padding(.top, 18)
                 .padding(.leading, 22)
+                .allowsHitTesting(false)
+        }
+        .overlay(alignment: .bottom) {
+            if let status = viewModel.transientStatusMessage {
+                transientStatusChip(status)
+                    .padding(.bottom, 24)
+                    .allowsHitTesting(false)
+                    .transition(.move(edge: .bottom).combined(with: .opacity))
+            }
         }
         .overlay(alignment: .topTrailing) {
             menuButton
@@ -60,21 +68,55 @@ struct DesignSystemTestView: View {
 
 private extension DesignSystemTestView {
     var cameraBackgroundLayer: some View {
-        Group {
-            if viewModel.isCameraReady {
-                PortraitLockedCameraPreview(session: viewModel.cameraSession)
-            } else {
-                LinearGradient(
-                    colors: [
-                        PreviewTheme.cameraFallbackTop,
-                        PreviewTheme.cameraFallbackBottom
-                    ],
-                    startPoint: .top,
-                    endPoint: .bottom
-                )
+        GeometryReader { geometry in
+            ZStack {
+                Group {
+                    if viewModel.isCameraReady {
+                        PortraitLockedCameraPreview(session: viewModel.cameraSession)
+                    } else {
+                        LinearGradient(
+                            colors: [
+                                PreviewTheme.cameraFallbackTop,
+                                PreviewTheme.cameraFallbackBottom
+                            ],
+                            startPoint: .top,
+                            endPoint: .bottom
+                        )
+                    }
+                }
+
+                previewFaceOverlayLayer(previewSize: geometry.size)
             }
+            .contentShape(Rectangle())
+            .gesture(
+                DragGesture(minimumDistance: 0)
+                    .onEnded { value in
+                        viewModel.handlePreviewTap(
+                            at: value.location,
+                            previewSize: geometry.size
+                        )
+                    }
+            )
         }
         .ignoresSafeArea()
+    }
+
+    func previewFaceOverlayLayer(previewSize: CGSize) -> some View {
+        let overlays = viewModel.previewFaceOverlays(for: previewSize)
+
+        return ZStack {
+            ForEach(overlays) { overlay in
+                Rectangle()
+                    .stroke(overlayStrokeColor(for: overlay.label), lineWidth: 5)
+                    .frame(width: overlay.rect.width, height: overlay.rect.height)
+                    .position(
+                        x: overlay.rect.midX,
+                        y: overlay.rect.midY
+                    )
+                    .shadow(color: overlayStrokeColor(for: overlay.label).opacity(0.34), radius: 10, x: 0, y: 0)
+            }
+        }
+        .allowsHitTesting(false)
     }
 
     var cameraDimLayer: some View {
@@ -88,10 +130,12 @@ private extension DesignSystemTestView {
             endPoint: .bottom
         )
         .ignoresSafeArea()
+        .allowsHitTesting(false)
     }
 
     var cameraGuideLayer: some View {
         EmptyView()
+            .allowsHitTesting(false)
     }
 
     var topStatusCluster: some View {
@@ -109,6 +153,13 @@ private extension DesignSystemTestView {
                 icon: privacyIconName(for: viewModel.privacyMode),
                 title: viewModel.privacyMode.title
             )
+
+            if !viewModel.ownerProfiles.isEmpty {
+                previewChip(
+                    icon: "person.2.fill",
+                    title: "Owner \(viewModel.ownerProfiles.count)"
+                )
+            }
         }
     }
 
@@ -186,10 +237,32 @@ private extension DesignSystemTestView {
     }
 
     var panelHeader: some View {
-        VStack(alignment: .leading, spacing: 12) {
-            Text("Jisang Lee")
-                .font(.system(size: 26, weight: .bold, design: .rounded))
-                .foregroundStyle(PreviewTheme.text)
+        HStack(alignment: .top) {
+            VStack(alignment: .leading, spacing: 12) {
+                Text("Jisang Lee")
+                    .font(.system(size: 26, weight: .bold, design: .rounded))
+                    .foregroundStyle(PreviewTheme.text)
+            }
+
+            Spacer(minLength: 12)
+
+            Button {
+                isMenuPresented = false
+            } label: {
+                Image(systemName: "xmark")
+                    .font(.system(size: 14, weight: .bold))
+                    .foregroundStyle(PreviewTheme.text.opacity(0.88))
+                    .frame(width: 34, height: 34)
+                    .background(
+                        Circle()
+                            .fill(Color.white.opacity(0.92))
+                    )
+                    .overlay(
+                        Circle()
+                            .stroke(PreviewTheme.border, lineWidth: 1)
+                    )
+            }
+            .buttonStyle(.plain)
         }
     }
 
@@ -213,7 +286,7 @@ private extension DesignSystemTestView {
 
             ScrollView(.horizontal, showsIndicators: false) {
                 HStack(spacing: 16) {
-                    ForEach(ownerProfiles) { profile in
+                    ForEach(displayOwnerProfiles) { profile in
                         ownerCard(for: profile)
                     }
                 }
@@ -223,32 +296,42 @@ private extension DesignSystemTestView {
     }
 
     func ownerCard(for profile: PreviewOwnerProfile) -> some View {
-        ZStack(alignment: .topTrailing) {
-            RoundedRectangle(cornerRadius: 20, style: .continuous)
-                .fill(
-                    LinearGradient(
-                        colors: profile.colors,
-                        startPoint: .topLeading,
-                        endPoint: .bottomTrailing
-                    )
-                )
-                .overlay(alignment: .bottomLeading) {
-                    VStack(alignment: .leading, spacing: 6) {
-                        Spacer()
+        let snapshotImage = ownerSnapshotImage(for: profile)
 
+        return ZStack(alignment: .topTrailing) {
+            Group {
+                if let image = snapshotImage {
+                    ownerSnapshotCardImage(image)
+                } else {
+                    RoundedRectangle(cornerRadius: 20, style: .continuous)
+                        .fill(
+                            LinearGradient(
+                                colors: profile.colors,
+                                startPoint: .topLeading,
+                                endPoint: .bottomTrailing
+                            )
+                        )
+                }
+            }
+            .overlay(alignment: .bottomLeading) {
+                VStack(alignment: .leading, spacing: 6) {
+                    Spacer()
+
+                    if snapshotImage == nil {
                         Text(profile.initials)
                             .font(.system(size: 34, weight: .bold, design: .rounded))
                             .foregroundStyle(.white)
-
-                        Text(profile.name)
-                            .font(.system(size: 13, weight: .semibold, design: .rounded))
-                            .foregroundStyle(.white.opacity(0.92))
                     }
-                    .padding(12)
+
+                    Text(profile.name)
+                        .font(.system(size: 13, weight: .semibold, design: .rounded))
+                        .foregroundStyle(.white.opacity(0.92))
                 }
+                .padding(12)
+            }
 
             Button {
-                ownerProfiles.removeAll { $0.id == profile.id }
+                viewModel.removeOwner(ownerID: profile.id)
             } label: {
                 Image(systemName: "xmark")
                     .font(.system(size: 12, weight: .bold))
@@ -263,6 +346,44 @@ private extension DesignSystemTestView {
             RoundedRectangle(cornerRadius: 20, style: .continuous)
                 .stroke(PreviewTheme.border, lineWidth: 1)
         )
+    }
+
+    func ownerSnapshotCardImage(_ image: Image) -> some View {
+        return GeometryReader { geometry in
+            image
+                .resizable()
+                .scaledToFill()
+                .frame(width: geometry.size.height, height: geometry.size.width)
+                .rotationEffect(.degrees(-90))
+                .position(x: geometry.size.width / 2, y: geometry.size.height / 2)
+                .overlay(
+                    LinearGradient(
+                        colors: [
+                            Color.black.opacity(0.02),
+                            Color.black.opacity(0.44)
+                        ],
+                        startPoint: .top,
+                        endPoint: .bottom
+                    )
+                )
+        }
+    }
+
+    func ownerSnapshotImage(for profile: PreviewOwnerProfile) -> Image? {
+        guard let snapshotURL = profile.snapshotURL else {
+            return nil
+        }
+
+        if let uiImage = UIImage(contentsOfFile: snapshotURL.path) {
+            return Image(uiImage: uiImage)
+        }
+
+        guard let data = try? Data(contentsOf: snapshotURL),
+              let uiImage = UIImage(data: data) else {
+            return nil
+        }
+
+        return Image(uiImage: uiImage)
     }
 
     var cameraToggleSection: some View {
@@ -371,6 +492,24 @@ private extension DesignSystemTestView {
         )
     }
 
+    func transientStatusChip(_ title: String) -> some View {
+        Text(title)
+            .font(.system(size: 13, weight: .semibold, design: .rounded))
+            .foregroundStyle(.white)
+            .padding(.horizontal, 16)
+            .padding(.vertical, 10)
+            .background(
+                Capsule()
+                    .fill(Color.black.opacity(0.34))
+                    .background(.ultraThinMaterial, in: Capsule())
+            )
+            .overlay(
+                Capsule()
+                    .stroke(Color.white.opacity(0.12), lineWidth: 1)
+            )
+            .shadow(color: Color.black.opacity(0.20), radius: 16, x: 0, y: 8)
+    }
+
     func previewPanelChip(icon: String, title: String) -> some View {
         HStack(spacing: 7) {
             Image(systemName: icon)
@@ -398,31 +537,58 @@ private extension DesignSystemTestView {
             return "eye.slash.fill"
         }
     }
+
+    func overlayStrokeColor(for label: TrackLabel) -> Color {
+        switch label {
+        case .owner:
+            return Color(red: 0.18, green: 0.84, blue: 0.42)
+        case .other, .pending:
+            return Color(red: 0.96, green: 0.24, blue: 0.22)
+        }
+    }
+
+    var displayOwnerProfiles: [PreviewOwnerProfile] {
+        viewModel.ownerProfiles.map(PreviewOwnerProfile.init(summary:))
+    }
 }
 
 private struct PreviewOwnerProfile: Identifiable {
-    let id = UUID()
+    let id: UUID
     let name: String
     let initials: String
     let colors: [Color]
+    let snapshotURL: URL?
 
-    static let samples: [PreviewOwnerProfile] = [
-        PreviewOwnerProfile(
-            name: "Jisang",
-            initials: "JL",
-            colors: [PreviewTheme.primary, PreviewTheme.secondary]
-        ),
-        PreviewOwnerProfile(
-            name: "Minsu",
-            initials: "MS",
-            colors: [Color(red: 0.13, green: 0.55, blue: 0.39), Color(red: 0.18, green: 0.76, blue: 0.42)]
-        ),
-        PreviewOwnerProfile(
-            name: "Dylan",
-            initials: "DL",
-            colors: [Color(red: 0.18, green: 0.35, blue: 0.56), Color(red: 0.06, green: 0.65, blue: 0.91)]
-        )
-    ]
+    init(summary: OwnerProfileSummary) {
+        id = summary.id
+        name = summary.displayName
+        initials = Self.initials(from: summary.displayName)
+        colors = Self.colors(for: summary.id)
+        snapshotURL = summary.snapshotURL
+    }
+
+    private static func initials(from displayName: String) -> String {
+        let tokens = displayName
+            .split(whereSeparator: \.isWhitespace)
+            .prefix(2)
+            .compactMap { $0.first }
+
+        let rawInitials = String(tokens)
+        return rawInitials.isEmpty ? "OW" : rawInitials.uppercased()
+    }
+
+    private static func colors(for id: UUID) -> [Color] {
+        let palettes: [[Color]] = [
+            [PreviewTheme.primary, PreviewTheme.secondary],
+            [Color(red: 0.13, green: 0.55, blue: 0.39), Color(red: 0.18, green: 0.76, blue: 0.42)],
+            [Color(red: 0.18, green: 0.35, blue: 0.56), Color(red: 0.06, green: 0.65, blue: 0.91)],
+            [Color(red: 0.71, green: 0.41, blue: 0.18), Color(red: 0.95, green: 0.67, blue: 0.24)],
+            [Color(red: 0.62, green: 0.18, blue: 0.36), Color(red: 0.93, green: 0.38, blue: 0.52)]
+        ]
+
+        let index = abs(id.uuidString.hashValue) % palettes.count
+        return palettes[index]
+    }
 }
 
 private struct PreviewSelectionBar<Item: Identifiable & Hashable>: View {

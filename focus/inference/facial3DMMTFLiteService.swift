@@ -8,14 +8,17 @@
 import Foundation
 import CoreGraphics
 import CoreVideo
+#if canImport(TensorFlowLite)
 import TensorFlowLite
+#endif
 
+#if canImport(TensorFlowLite)
 final class Facial3DMMTFLiteService: Facial3DMMInferring {
     private let interpreter: Interpreter
     private let preprocessor = ImagePreprocessor.shared
 
     init(
-        modelFileName: String = "facial_3DMM",
+        modelFileName: String = "facemap_3dmm-facial-landmark-detection-float",
         modelFileExtension: String = "tflite",
         threadCount: Int = 2
     ) throws {
@@ -102,6 +105,31 @@ final class Facial3DMMTFLiteService: Facial3DMMInferring {
         }
     }
 }
+#else
+final class Facial3DMMTFLiteService: Facial3DMMInferring {
+    init(
+        modelFileName: String = "facemap_3dmm-facial-landmark-detection-float",
+        modelFileExtension: String = "tflite",
+        threadCount: Int = 2
+    ) throws {
+        _ = modelFileName
+        _ = modelFileExtension
+        _ = threadCount
+
+        throw InferenceError.sessionInitializationFailed(
+            "TensorFlowLite 모듈을 찾을 수 없습니다. Pod 설치 또는 framework 연결 상태를 확인해 주세요."
+        )
+    }
+
+    func inferTDMM(from pixelBuffer: CVPixelBuffer, face: DetectedFace) throws -> TDMMCoefficients? {
+        _ = pixelBuffer
+        _ = face
+        throw InferenceError.sessionInitializationFailed(
+            "3DMM 런타임이 연결되지 않았습니다."
+        )
+    }
+}
+#endif
 
 // MARK: - Data Helpers
 private extension Data {

@@ -33,10 +33,15 @@ enum FocusConstants {
     static let ownerSimilarityThreshold: Float = 0.4
 
     static let minEmbeddingCropSize: CGFloat = 16
-    static let minManualOwnerFaceSize: CGFloat = 72
+    static let minManualOwnerFaceSize: CGFloat = 16
+    static let arcFaceMinAlignmentAngleDeg: CGFloat = 1.5
+    static let ownerSnapshotRotationDegrees: CGFloat = 0
 
     static let ownerRegistrationRetryIntervalMs: Int = 250
     static let ownerUpgradeRetryIntervalMs: Int = 400
+    static let previewAnalysisStride: Int = 1
+    static let previewOverlayMaxMissedFrames: Int = 2
+    static let previewBoxInterpolationFactor: CGFloat = 0.36
 
     static let maxSimultaneousMaskFaces = 8
     static let mosaicBlockSize: Int = 16

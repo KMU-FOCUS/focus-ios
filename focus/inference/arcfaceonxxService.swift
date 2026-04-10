@@ -8,8 +8,11 @@
 import Foundation
 import CoreGraphics
 import CoreVideo
+#if canImport(onnxruntime_objc)
 import onnxruntime_objc
+#endif
 
+#if canImport(onnxruntime_objc)
 final class ArcFaceONNXService: ArcFaceEmbeddingExtracting {
     private let env: ORTEnv
     private let session: ORTSession
@@ -18,7 +21,7 @@ final class ArcFaceONNXService: ArcFaceEmbeddingExtracting {
     private let preprocessor = ImagePreprocessor.shared
 
     init(
-        modelFileName: String = "arcface",
+        modelFileName: String = "w600k_mbf",
         modelFileExtension: String = "onnx",
         inputName: String = "input",
         outputName: String = "output"
@@ -32,8 +35,45 @@ final class ArcFaceONNXService: ArcFaceEmbeddingExtracting {
             let options = try ORTSessionOptions()
             try options.setIntraOpNumThreads(2)
             self.session = try ORTSession(env: env, modelPath: path, sessionOptions: options)
-            self.inputName = inputName
-            self.outputName = outputName
+
+            let availableInputNames = try session.inputNames().compactMap { $0 as? String }
+            let availableOutputNames = try session.outputNames().compactMap { $0 as? String }
+
+            guard let resolvedInputName = ArcFaceModelIOResolver.resolveInputName(
+                preferredName: inputName,
+                availableNames: availableInputNames
+            ) else {
+                throw InferenceError.invalidModelOutput("ArcFace input name을 찾을 수 없습니다.")
+            }
+
+            guard let resolvedOutputName = ArcFaceModelIOResolver.resolveOutputName(
+                preferredName: outputName,
+                availableNames: availableOutputNames
+            ) else {
+                throw InferenceError.invalidModelOutput("ArcFace output name을 찾을 수 없습니다.")
+            }
+
+            self.inputName = resolvedInputName
+            self.outputName = resolvedOutputName
+
+            if resolvedInputName != inputName {
+                FocusLogger.warning(
+                    "ArcFace input 이름 '\(inputName)'을 찾지 못해 '\(resolvedInputName)'을 사용합니다. available=\(availableInputNames)",
+                    category: .inference
+                )
+            }
+
+            if resolvedOutputName != outputName {
+                FocusLogger.warning(
+                    "ArcFace output 이름 '\(outputName)'을 찾지 못해 '\(resolvedOutputName)'을 사용합니다. available=\(availableOutputNames)",
+                    category: .inference
+                )
+            }
+
+            FocusLogger.info(
+                "ArcFace model IO resolved: input=\(resolvedInputName), output=\(resolvedOutputName)",
+                category: .inference
+            )
         } catch {
             throw InferenceError.sessionInitializationFailed(error.localizedDescription)
         }
@@ -46,9 +86,10 @@ final class ArcFaceONNXService: ArcFaceEmbeddingExtracting {
             throw InferenceError.cropTooSmall
         }
 
-        let image = try preprocessor.cropRGB(
+        let image = try preprocessor.cropAlignedRGBForRecognition(
             from: pixelBuffer,
             rect: bbox,
+            landmarks: face.landmarks,
             outputSize: FocusConstants.arcFaceInputSize
         )
 
@@ -73,7 +114,7 @@ final class ArcFaceONNXService: ArcFaceEmbeddingExtracting {
         do {
             outputs = try session.run(
                 withInputs: [inputName: inputTensor],
-                outputNames: [outputName],
+                outputNames: Set([outputName]),
                 runOptions: nil
             )
         } catch {
@@ -97,6 +138,82 @@ final class ArcFaceONNXService: ArcFaceEmbeddingExtracting {
         }
 
         return preprocessor.l2Normalize(embedding)
+    }
+}
+#else
+final class ArcFaceONNXService: ArcFaceEmbeddingExtracting {
+    init(
+        modelFileName: String = "w600k_mbf",
+        modelFileExtension: String = "onnx",
+        inputName: String = "input",
+        outputName: String = "output"
+    ) throws {
+        _ = modelFileName
+        _ = modelFileExtension
+        _ = inputName
+        _ = outputName
+
+        throw InferenceError.sessionInitializationFailed(
+            "onnxruntime_objc 모듈을 찾을 수 없습니다. Pod 설치 또는 framework 연결 상태를 확인해 주세요."
+        )
+    }
+
+    func extractEmbedding(from pixelBuffer: CVPixelBuffer, face: DetectedFace) throws -> [Float] {
+        _ = pixelBuffer
+        _ = face
+        throw InferenceError.sessionInitializationFailed(
+            "ArcFace 런타임이 연결되지 않았습니다."
+        )
+    }
+}
+#endif
+
+struct ArcFaceModelIOResolver {
+    static func resolveInputName(preferredName: String, availableNames: [String]) -> String? {
+        guard !availableNames.isEmpty else { return nil }
+
+        if availableNames.contains(preferredName) {
+            return preferredName
+        }
+
+        if let canonical = availableNames.first(where: { normalized($0) == normalized(preferredName) }) {
+            return canonical
+        }
+
+        return availableNames.first
+    }
+
+    static func resolveOutputName(preferredName: String, availableNames: [String]) -> String? {
+        guard !availableNames.isEmpty else { return nil }
+
+        if availableNames.contains(preferredName) {
+            return preferredName
+        }
+
+        if let canonical = availableNames.first(where: { normalized($0) == normalized(preferredName) }) {
+            return canonical
+        }
+
+        let priorityTokens = [
+            "fc1",
+            "embedding",
+            "emb",
+            "output"
+        ]
+
+        for token in priorityTokens {
+            if let matched = availableNames.first(where: { normalized($0).contains(token) }) {
+                return matched
+            }
+        }
+
+        return availableNames.first
+    }
+
+    private static func normalized(_ value: String) -> String {
+        value
+            .trimmingCharacters(in: .whitespacesAndNewlines)
+            .lowercased()
     }
 }
 

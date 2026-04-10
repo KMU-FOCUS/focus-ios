@@ -74,6 +74,7 @@ final class FaceTracker {
                 landmarks: detection.landmarks,
                 tdmm: tdmmList[detectionIndex],
                 label: .pending,
+                ownerID: nil,
                 age: 1,
                 missedFrames: 0,
                 frontalEmbeddingSamples: [],
@@ -164,6 +165,7 @@ final class FaceTracker {
 
     private func resetTrackStateForReappearance(_ track: inout TrackedFace) {
         track.label = .pending
+        track.ownerID = nil
         track.frontalEmbeddingSamples.removeAll()
         track.hasRetriedOther = false
         track.framesSeen = 1

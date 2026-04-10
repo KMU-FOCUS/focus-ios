@@ -63,17 +63,36 @@ final class ImagePreprocessor {
         rect: CGRect,
         outputSize: CGSize
     ) throws -> ImageTensorData {
-        let sourceWidth = CVPixelBufferGetWidth(pixelBuffer)
-        let sourceHeight = CVPixelBufferGetHeight(pixelBuffer)
+        let croppedImage = try makeCroppedCGImage(from: pixelBuffer, rect: rect)
+        let rgbData = try renderRGBData(
+            from: croppedImage,
+            outputSize: outputSize
+        )
 
-        let clamped = rect.intersection(CGRect(x: 0, y: 0, width: sourceWidth, height: sourceHeight))
-        guard !clamped.isNull, !clamped.isEmpty, clamped.width >= 1, clamped.height >= 1 else {
-            throw InferenceError.cropTooSmall
-        }
+        return ImageTensorData(
+            data: rgbData,
+            width: Int(outputSize.width),
+            height: Int(outputSize.height),
+            channels: 3
+        )
+    }
+
+    func cropAlignedRGBForRecognition(
+        from pixelBuffer: CVPixelBuffer,
+        rect: CGRect,
+        landmarks: FaceLandmarks5?,
+        outputSize: CGSize,
+        minimumAngleDegrees: CGFloat = FocusConstants.arcFaceMinAlignmentAngleDeg
+    ) throws -> ImageTensorData {
+        let croppedImage = try makeCroppedCGImage(from: pixelBuffer, rect: rect)
+        let alignedImage = rotateRecognitionCropIfNeeded(
+            croppedImage,
+            landmarks: landmarks,
+            minimumAngleDegrees: minimumAngleDegrees
+        )
 
         let rgbData = try renderRGBData(
-            from: pixelBuffer,
-            cropRect: clamped,
+            from: alignedImage,
             outputSize: outputSize
         )
 
@@ -147,6 +166,39 @@ final class ImagePreprocessor {
         return vector.map { $0 / norm }
     }
 
+    func jpegData(
+        from pixelBuffer: CVPixelBuffer,
+        rect: CGRect,
+        compressionQuality: CGFloat = 0.85,
+        rotationDegrees: CGFloat = 0
+    ) throws -> Data {
+        let sourceWidth = CVPixelBufferGetWidth(pixelBuffer)
+        let sourceHeight = CVPixelBufferGetHeight(pixelBuffer)
+
+        let clamped = rect.intersection(CGRect(x: 0, y: 0, width: sourceWidth, height: sourceHeight))
+        guard !clamped.isNull, !clamped.isEmpty, clamped.width >= 1, clamped.height >= 1 else {
+            throw InferenceError.cropTooSmall
+        }
+
+        let ciImage = CIImage(cvPixelBuffer: pixelBuffer)
+        let cropped = ciImage.cropped(to: clamped)
+
+        guard let cgImage = ciContext.createCGImage(cropped, from: cropped.extent) else {
+            throw InferenceError.preprocessingFailed("snapshot CGImage 생성 실패")
+        }
+
+        let imageForEncoding = rotateSnapshotImageIfNeeded(
+            cgImage,
+            degrees: rotationDegrees
+        )
+
+        guard let data = imageForEncoding.jpegData(compressionQuality: compressionQuality) else {
+            throw InferenceError.preprocessingFailed("snapshot JPEG 인코딩 실패")
+        }
+
+        return data
+    }
+
     // MARK: - Private
 
     private func renderRGBData(
@@ -154,15 +206,20 @@ final class ImagePreprocessor {
         cropRect: CGRect,
         outputSize: CGSize
     ) throws -> Data {
-        let ciImage = CIImage(cvPixelBuffer: pixelBuffer)
-        let cropped = ciImage.cropped(to: cropRect)
+        let cgImage = try makeCroppedCGImage(from: pixelBuffer, rect: cropRect)
+        return try renderRGBData(from: cgImage, outputSize: outputSize)
+    }
 
-        guard let cgImage = ciContext.createCGImage(cropped, from: cropped.extent) else {
-            throw InferenceError.preprocessingFailed("CGImage 생성 실패")
-        }
-
+    private func renderRGBData(
+        from cgImage: CGImage,
+        outputSize: CGSize
+    ) throws -> Data {
         let width = Int(outputSize.width)
         let height = Int(outputSize.height)
+        guard width > 0, height > 0 else {
+            throw InferenceError.preprocessingFailed("출력 크기가 올바르지 않습니다.")
+        }
+
         let bytesPerPixel = 4
         let bytesPerRow = width * bytesPerPixel
         let bitsPerComponent = 8
@@ -194,5 +251,125 @@ final class ImagePreprocessor {
         }
 
         return Data(rgb)
+    }
+
+    private func makeCroppedCGImage(
+        from pixelBuffer: CVPixelBuffer,
+        rect: CGRect
+    ) throws -> CGImage {
+        let sourceWidth = CVPixelBufferGetWidth(pixelBuffer)
+        let sourceHeight = CVPixelBufferGetHeight(pixelBuffer)
+        let clamped = rect.intersection(CGRect(x: 0, y: 0, width: sourceWidth, height: sourceHeight))
+        guard !clamped.isNull, !clamped.isEmpty, clamped.width >= 1, clamped.height >= 1 else {
+            throw InferenceError.cropTooSmall
+        }
+
+        let ciImage = CIImage(cvPixelBuffer: pixelBuffer)
+        let cropped = ciImage.cropped(to: clamped)
+        guard let cgImage = ciContext.createCGImage(cropped, from: cropped.extent) else {
+            throw InferenceError.preprocessingFailed("CGImage 생성 실패")
+        }
+
+        return cgImage
+    }
+
+    private func rotateRecognitionCropIfNeeded(
+        _ cgImage: CGImage,
+        landmarks: FaceLandmarks5?,
+        minimumAngleDegrees: CGFloat
+    ) -> CGImage {
+        guard let landmarks else { return cgImage }
+
+        let angleRadians = recognitionAngleRadians(for: landmarks)
+        let angleDegrees = angleRadians * 180.0 / .pi
+        guard abs(angleDegrees) >= minimumAngleDegrees else {
+            return cgImage
+        }
+
+        let size = CGSize(width: cgImage.width, height: cgImage.height)
+        let renderer = UIGraphicsImageRenderer(size: size)
+        let sourceImage = UIImage(cgImage: cgImage)
+
+        let alignedImage = renderer.image { context in
+            UIColor.black.setFill()
+            context.fill(CGRect(origin: .zero, size: size))
+
+            let cgContext = context.cgContext
+            cgContext.interpolationQuality = .high
+            cgContext.translateBy(x: size.width / 2.0, y: size.height / 2.0)
+            cgContext.rotate(by: -angleRadians)
+
+            sourceImage.draw(
+                in: CGRect(
+                    x: -size.width / 2.0,
+                    y: -size.height / 2.0,
+                    width: size.width,
+                    height: size.height
+                )
+            )
+        }
+
+        return alignedImage.cgImage ?? cgImage
+    }
+
+    private func recognitionAngleRadians(for landmarks: FaceLandmarks5) -> CGFloat {
+        let dx = landmarks.leftEye.x - landmarks.rightEye.x
+        let dy = landmarks.leftEye.y - landmarks.rightEye.y
+        return atan2(dy, dx)
+    }
+
+    private func rotateSnapshotImageIfNeeded(
+        _ cgImage: CGImage,
+        degrees: CGFloat
+    ) -> UIImage {
+        let normalizedDegrees = normalizedRotationDegrees(degrees)
+        guard abs(normalizedDegrees) > 0.01 else {
+            return UIImage(cgImage: cgImage)
+        }
+
+        let sourceSize = CGSize(width: cgImage.width, height: cgImage.height)
+        let radians = normalizedDegrees * .pi / 180.0
+        let rotatedBounds = CGRect(origin: .zero, size: sourceSize)
+            .applying(CGAffineTransform(rotationAngle: radians))
+
+        let canvasSize = CGSize(
+            width: max(1, ceil(abs(rotatedBounds.width))),
+            height: max(1, ceil(abs(rotatedBounds.height)))
+        )
+
+        let renderer = UIGraphicsImageRenderer(size: canvasSize)
+        let sourceImage = UIImage(cgImage: cgImage)
+
+        return renderer.image { context in
+            UIColor.black.setFill()
+            context.fill(CGRect(origin: .zero, size: canvasSize))
+
+            let cgContext = context.cgContext
+            cgContext.interpolationQuality = .high
+            cgContext.translateBy(
+                x: canvasSize.width / 2.0,
+                y: canvasSize.height / 2.0
+            )
+            cgContext.rotate(by: radians)
+
+            sourceImage.draw(
+                in: CGRect(
+                    x: -sourceSize.width / 2.0,
+                    y: -sourceSize.height / 2.0,
+                    width: sourceSize.width,
+                    height: sourceSize.height
+                )
+            )
+        }
+    }
+
+    private func normalizedRotationDegrees(_ degrees: CGFloat) -> CGFloat {
+        var normalized = degrees.truncatingRemainder(dividingBy: 360)
+        if normalized > 180 {
+            normalized -= 360
+        } else if normalized <= -180 {
+            normalized += 360
+        }
+        return normalized
     }
 }

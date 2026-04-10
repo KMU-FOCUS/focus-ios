@@ -38,7 +38,9 @@ final class LocalRecorder {
     func prepareRecording(
         outputURL: URL,
         videoSize: CGSize,
-        fileType: AVFileType = .mp4
+        fileType: AVFileType = .mp4,
+        averageBitRate: Int? = nil,
+        keyFrameIntervalSeconds: Int = 2
     ) throws {
         lock.lock()
         defer { lock.unlock() }
@@ -56,14 +58,15 @@ final class LocalRecorder {
         }
 
         let writer = try AVAssetWriter(outputURL: outputURL, fileType: fileType)
+        let bitRate = averageBitRate ?? Self.defaultBitRate(for: videoSize)
 
         let videoSettings: [String: Any] = [
             AVVideoCodecKey: AVVideoCodecType.h264,
             AVVideoWidthKey: Int(videoSize.width),
             AVVideoHeightKey: Int(videoSize.height),
             AVVideoCompressionPropertiesKey: [
-                AVVideoAverageBitRateKey: 4_000_000,
-                AVVideoMaxKeyFrameIntervalKey: 30,
+                AVVideoAverageBitRateKey: bitRate,
+                AVVideoMaxKeyFrameIntervalDurationKey: keyFrameIntervalSeconds,
                 AVVideoProfileLevelKey: AVVideoProfileLevelH264HighAutoLevel
             ]
         ]
@@ -246,5 +249,25 @@ final class LocalRecorder {
         lock.lock()
         defer { lock.unlock() }
         return outputURL
+    }
+
+    private static func defaultBitRate(for videoSize: CGSize) -> Int {
+        let width = max(videoSize.width, videoSize.height)
+        let height = min(videoSize.width, videoSize.height)
+        let pixels = width * height
+
+        if pixels <= (1280.0 * 720.0) {
+            return 4_000_000
+        } else if pixels >= (3840.0 * 2160.0) {
+            return 15_000_000
+        } else if pixels >= (1920.0 * 1080.0) {
+            return 8_000_000
+        } else {
+            let lowerPixels: CGFloat = 1280.0 * 720.0
+            let upperPixels: CGFloat = 1920.0 * 1080.0
+            let progress = max(0, min(1, (pixels - lowerPixels) / (upperPixels - lowerPixels)))
+            let bitRate: CGFloat = 4_000_000.0 + ((8_000_000.0 - 4_000_000.0) * progress)
+            return Int(bitRate.rounded())
+        }
     }
 }

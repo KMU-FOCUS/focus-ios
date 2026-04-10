@@ -8,10 +8,15 @@
 import Foundation
 
 final class TrackStateMachine {
-    private let ownerReferenceEmbedding: [Float]
+    private let ownerStore: OwnerEmbeddingStore
+    private let classifier: OwnerOtherClassifier
 
-    init(ownerReferenceEmbedding: [Float]) {
-        self.ownerReferenceEmbedding = ownerReferenceEmbedding
+    init(
+        ownerStore: OwnerEmbeddingStore,
+        classifier: OwnerOtherClassifier = OwnerOtherClassifier()
+    ) {
+        self.ownerStore = ownerStore
+        self.classifier = classifier
     }
 
     func shouldCollectEmbedding(for track: TrackedFace) -> Bool {
@@ -48,6 +53,7 @@ final class TrackStateMachine {
 
     func resetOnReappearance(track: inout TrackedFace) {
         track.label = .pending
+        track.ownerID = nil
         track.frontalEmbeddingSamples.removeAll()
         track.hasRetriedOther = false
         track.framesSeen = 0
@@ -66,62 +72,21 @@ final class TrackStateMachine {
             return
         }
 
-        let averagedEmbedding = average(track.frontalEmbeddingSamples)
-        let similarity = cosineSimilarity(averagedEmbedding, ownerReferenceEmbedding)
-
-        if similarity >= FocusConstants.ownerSimilarityThreshold {
-            track.label = .owner
-        } else {
-            track.label = .other
-        }
+        let result = classifier.classify(
+            embeddings: track.frontalEmbeddingSamples,
+            using: ownerStore
+        )
+        track.label = result.label
+        track.ownerID = result.ownerID
     }
 
     private func handleOtherTrackRetry(track: inout TrackedFace, newEmbedding: [Float]) {
         guard !track.hasRetriedOther else { return }
 
-        let similarity = cosineSimilarity(newEmbedding, ownerReferenceEmbedding)
-        if similarity >= FocusConstants.ownerSimilarityThreshold {
-            track.label = .owner
-        } else {
-            track.label = .other
-        }
+        let result = classifier.classify(embedding: newEmbedding, using: ownerStore)
+        track.label = result.label
+        track.ownerID = result.ownerID
 
         track.hasRetriedOther = true
-    }
-
-    private func average(_ samples: [[Float]]) -> [Float] {
-        guard let first = samples.first else { return [] }
-
-        var result = Array(repeating: Float(0), count: first.count)
-        for sample in samples {
-            guard sample.count == result.count else { continue }
-            for i in 0..<sample.count {
-                result[i] += sample[i]
-            }
-        }
-
-        let count = Float(samples.count)
-        guard count > 0 else { return result }
-
-        return result.map { $0 / count }
-    }
-
-    private func cosineSimilarity(_ a: [Float], _ b: [Float]) -> Float {
-        guard a.count == b.count, !a.isEmpty else { return -1 }
-
-        var dot: Float = 0
-        var normA: Float = 0
-        var normB: Float = 0
-
-        for i in 0..<a.count {
-            dot += a[i] * b[i]
-            normA += a[i] * a[i]
-            normB += b[i] * b[i]
-        }
-
-        let denom = sqrt(normA) * sqrt(normB)
-        guard denom > 0 else { return -1 }
-
-        return dot / denom
     }
 }

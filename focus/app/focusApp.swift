@@ -13,47 +13,22 @@ struct FocusApp: App {
     @UIApplicationDelegateAdaptor(FocusAppDelegate.self) private var appDelegate
     @Environment(\.scenePhase) private var scenePhase
     @State private var showsMainPage = false
-    @State private var showsPreviewMainPage = false
-    // Temporary switch for previewing a generated design system without touching live screens.
-    private let debugLaunchRoute: FocusLaunchRoute = .designSystemPreview
 
     var body: some Scene {
         WindowGroup {
-            Group {
-                switch debugLaunchRoute {
-                case .appFlow:
-                    ZStack {
-                        if showsMainPage {
-                            ContentView()
-                                .modifier(AppOrientationModifier(mask: .landscapeRight, rotateTo: .landscapeRight))
-                                .transition(.opacity)
-                        } else {
-                            StartView(onTapPrepare: {
-                                withAnimation(.easeInOut(duration: 0.25)) {
-                                    showsMainPage = true
-                                }
-                            })
-                            .modifier(AppOrientationModifier(mask: .portrait, rotateTo: .portrait))
-                            .transition(.opacity)
+            ZStack {
+                if showsMainPage {
+                    ContentView()
+                        .modifier(AppOrientationModifier(mask: .landscapeRight, rotateTo: .landscapeRight))
+                        .transition(.opacity)
+                } else {
+                    StartView(onTapPrepare: {
+                        withAnimation(.easeInOut(duration: 0.25)) {
+                            showsMainPage = true
                         }
-                    }
-
-                case .designSystemPreview:
-                    ZStack {
-                        if showsPreviewMainPage {
-                            DesignSystemTestView()
-                                .modifier(AppOrientationModifier(mask: .landscapeRight, rotateTo: .landscapeRight))
-                                .transition(.opacity)
-                        } else {
-                            LaunchIntroView(onTapContinue: {
-                                withAnimation(.easeInOut(duration: 0.25)) {
-                                    showsPreviewMainPage = true
-                                }
-                            })
-                            .modifier(AppOrientationModifier(mask: .portrait, rotateTo: .portrait))
-                            .transition(.opacity)
-                        }
-                    }
+                    })
+                    .modifier(AppOrientationModifier(mask: .portrait, rotateTo: .portrait))
+                    .transition(.opacity)
                 }
             }
             .onAppear {
@@ -64,11 +39,6 @@ struct FocusApp: App {
             }
         }
     }
-}
-
-private enum FocusLaunchRoute {
-    case appFlow
-    case designSystemPreview
 }
 
 final class FocusAppDelegate: NSObject, UIApplicationDelegate {
