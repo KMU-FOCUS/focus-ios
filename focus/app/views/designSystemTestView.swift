@@ -313,32 +313,21 @@ private extension DesignSystemTestView {
                         )
                 }
             }
-            .overlay(alignment: .bottomLeading) {
-                VStack(alignment: .leading, spacing: 6) {
-                    Spacer()
-
-                    if snapshotImage == nil {
-                        Text(profile.initials)
-                            .font(.system(size: 34, weight: .bold, design: .rounded))
-                            .foregroundStyle(.white)
-                    }
-
-                    Text(profile.name)
-                        .font(.system(size: 13, weight: .semibold, design: .rounded))
-                        .foregroundStyle(.white.opacity(0.92))
-                }
-                .padding(12)
-            }
 
             Button {
                 viewModel.removeOwner(ownerID: profile.id)
             } label: {
                 Image(systemName: "xmark")
                     .font(.system(size: 12, weight: .bold))
-                    .foregroundStyle(PreviewTheme.text.opacity(0.82))
+                    .foregroundStyle(.white)
                     .padding(8)
+                    .background(
+                        Circle()
+                            .fill(Color.black.opacity(0.28))
+                    )
             }
             .buttonStyle(.plain)
+            .padding(8)
         }
         .frame(width: 120, height: 136)
         .clipShape(RoundedRectangle(cornerRadius: 20, style: .continuous))
@@ -356,16 +345,6 @@ private extension DesignSystemTestView {
                 .frame(width: geometry.size.height, height: geometry.size.width)
                 .rotationEffect(.degrees(-90))
                 .position(x: geometry.size.width / 2, y: geometry.size.height / 2)
-                .overlay(
-                    LinearGradient(
-                        colors: [
-                            Color.black.opacity(0.02),
-                            Color.black.opacity(0.44)
-                        ],
-                        startPoint: .top,
-                        endPoint: .bottom
-                    )
-                )
         }
     }
 

@@ -8,6 +8,33 @@
 import CoreGraphics
 
 struct PreviewTrackHitTester {
+    func containingTrackID(
+        at point: CGPoint,
+        previewSize: CGSize,
+        tracks: [TrackedFace],
+        sourceSize: CGSize,
+        isMirrored: Bool,
+        rotationDegrees: Int = 270
+    ) -> Int? {
+        mappedTrackRects(
+            tracks: tracks,
+            previewSize: previewSize,
+            sourceSize: sourceSize,
+            isMirrored: isMirrored,
+            rotationDegrees: rotationDegrees
+        )
+        .filter { $0.rect.contains(point) }
+        .min { lhs, rhs in
+            let lhsArea = lhs.rect.width * lhs.rect.height
+            let rhsArea = rhs.rect.width * rhs.rect.height
+            if lhsArea == rhsArea {
+                return lhs.distance(to: point) < rhs.distance(to: point)
+            }
+            return lhsArea < rhsArea
+        }?
+        .trackID
+    }
+
     func nearestTrackID(
         to point: CGPoint,
         previewSize: CGSize,
