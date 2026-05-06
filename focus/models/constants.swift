@@ -10,9 +10,9 @@ import CoreGraphics
 
 enum FocusConstants {
     static let yunetShortSide: CGFloat = 360
-    static let yunetScoreThreshold: Float = 0.6
+    static let yunetScoreThreshold: Float = 0.5
     static let yunetNmsThreshold: Float = 0.3
-    static let yunetConfidenceThreshold: Float = 0.6
+    static let yunetConfidenceThreshold: Float = 0.5
     static let yunetTopK: Int = 5000
 
     static let tdmmInputSize = CGSize(width: 128, height: 128)
@@ -30,7 +30,7 @@ enum FocusConstants {
     static let skipFrames: Int = 5
     static let collectFrames: Int = 3
     static let frontalThreshold: CGFloat = 0.4
-    static let ownerSimilarityThreshold: Float = 0.4
+    static let ownerSimilarityThreshold: Float = 0.5
 
     static let minEmbeddingCropSize: CGFloat = 16
     static let minManualOwnerFaceSize: CGFloat = 16
@@ -39,12 +39,18 @@ enum FocusConstants {
 
     static let ownerRegistrationRetryIntervalMs: Int = 250
     static let ownerUpgradeRetryIntervalMs: Int = 400
+    static let ownerUpgradeSimilarityThreshold: Float = 0.65
+    static let soleOwnerLockConfirmFrames: Int = 3
+    static let soleOwnerLockGraceFrames: Int = 8
+    static let soleOwnerLockTransferMaxCost: Float = 0.45
     static let previewAnalysisStride: Int = 1
-    static let previewOverlayMaxMissedFrames: Int = 2
+    static let previewOverlayMaxMissedFrames: Int = 3
     static let previewBoxInterpolationFactor: CGFloat = 0.36
+    static let previewOwnerLatchMemoryFrames: Int = 60
 
     static let maxSimultaneousMaskFaces = 8
     static let mosaicBlockSize: Int = 16
+    static let privacyMaskHorizontalBiasRatio: CGFloat = -0.08
 
     static let ptsScaleMicroseconds: Double = 1_000_000.0
     static let avDriftToleranceMs: Double = 40.0

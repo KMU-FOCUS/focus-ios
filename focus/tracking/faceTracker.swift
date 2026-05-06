@@ -12,6 +12,69 @@ final class FaceTracker {
     private(set) var tracks: [TrackedFace] = []
     private var nextTrackID: Int = 1
 
+    func updateTrackingIDs(
+        detections: [DetectedFace],
+        tdmmList: [TDMMCoefficients?],
+        frameIndex: Int
+    ) -> [Int] {
+        for index in tracks.indices {
+            tracks[index].age += 1
+            tracks[index].missedFrames += 1
+        }
+
+        guard !detections.isEmpty else {
+            tracks.removeAll { $0.missedFrames > FocusConstants.maxAge }
+            return []
+        }
+
+        let assignment = assignDetections(
+            to: tracks,
+            detections: detections,
+            tdmmList: tdmmList
+        )
+
+        var result = Array(repeating: -1, count: detections.count)
+
+        for (trackIndex, detectionIndex) in assignment.matches {
+            guard trackIndex < tracks.count, detectionIndex < detections.count else { continue }
+
+            let detection = detections[detectionIndex]
+            tracks[trackIndex].bbox = detection.bbox
+            tracks[trackIndex].landmarks = detection.landmarks
+            tracks[trackIndex].tdmm = tdmmList[detectionIndex]
+            tracks[trackIndex].missedFrames = 0
+            tracks[trackIndex].lastSeenFrameIndex = frameIndex
+            result[detectionIndex] = tracks[trackIndex].trackID
+        }
+
+        for detectionIndex in assignment.unmatchedDetectionIndices {
+            guard detectionIndex < detections.count else { continue }
+
+            let detection = detections[detectionIndex]
+            let track = TrackedFace(
+                trackID: nextTrackID,
+                bbox: detection.bbox,
+                landmarks: detection.landmarks,
+                tdmm: tdmmList[detectionIndex],
+                label: .pending,
+                ownerID: nil,
+                age: 1,
+                missedFrames: 0,
+                frontalEmbeddingSamples: [],
+                hasRetriedOther: false,
+                framesSeen: 1,
+                lastSeenFrameIndex: frameIndex
+            )
+
+            tracks.append(track)
+            result[detectionIndex] = nextTrackID
+            nextTrackID += 1
+        }
+
+        tracks.removeAll { $0.missedFrames > FocusConstants.maxAge }
+        return result
+    }
+
     func update(
         detections: [DetectedFace],
         tdmmList: [TDMMCoefficients?],
@@ -34,8 +97,6 @@ final class FaceTracker {
 
             var track = tracks[trackIndex]
 
-            let wasMissingLastFrame = track.lastSeenFrameIndex == frameIndex - 2
-
             track.bbox = detection.bbox
             track.landmarks = detection.landmarks
             track.tdmm = detectionTDMM
@@ -43,10 +104,6 @@ final class FaceTracker {
             track.missedFrames = 0
             track.framesSeen += 1
             track.lastSeenFrameIndex = frameIndex
-
-            if wasMissingLastFrame {
-                resetTrackStateForReappearance(&track)
-            }
 
             updatedTracks.append(track)
         }
@@ -93,6 +150,27 @@ final class FaceTracker {
 
     func replaceTracks(with newTracks: [TrackedFace]) {
         self.tracks = newTracks
+    }
+
+    func track(withID trackID: Int) -> TrackedFace? {
+        tracks.first { $0.trackID == trackID }
+    }
+
+    func mergeAnnotations(from currentTracks: [TrackedFace]) {
+        guard !currentTracks.isEmpty else { return }
+
+        let annotationsByTrackID = Dictionary(
+            uniqueKeysWithValues: currentTracks.map { ($0.trackID, $0) }
+        )
+
+        for index in tracks.indices {
+            guard let currentTrack = annotationsByTrackID[tracks[index].trackID] else { continue }
+            tracks[index].label = currentTrack.label
+            tracks[index].ownerID = currentTrack.ownerID
+            tracks[index].frontalEmbeddingSamples = currentTrack.frontalEmbeddingSamples
+            tracks[index].hasRetriedOther = currentTrack.hasRetriedOther
+            tracks[index].framesSeen = currentTrack.framesSeen
+        }
     }
 
     func reset() {
@@ -161,13 +239,5 @@ final class FaceTracker {
             unmatchedTrackIndices: unmatchedTracks,
             unmatchedDetectionIndices: unmatchedDetections
         )
-    }
-
-    private func resetTrackStateForReappearance(_ track: inout TrackedFace) {
-        track.label = .pending
-        track.ownerID = nil
-        track.frontalEmbeddingSamples.removeAll()
-        track.hasRetriedOther = false
-        track.framesSeen = 1
     }
 }

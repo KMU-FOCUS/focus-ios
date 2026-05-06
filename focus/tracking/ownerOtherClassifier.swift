@@ -46,12 +46,20 @@ final class OwnerOtherClassifier {
         var bestSimilarity: Float = -1
 
         for owner in owners {
-            let ownerPrototype = l2Normalize(average(owner.embeddings))
-            guard !ownerPrototype.isEmpty else { continue }
+            var ownerMaxSimilarity: Float = -1
 
-            let similarity = cosineSimilarity(normalizedEmbedding, ownerPrototype)
-            if similarity > bestSimilarity {
-                bestSimilarity = similarity
+            for ownerEmbedding in owner.embeddings {
+                let normalizedOwnerEmbedding = l2Normalize(ownerEmbedding)
+                guard !normalizedOwnerEmbedding.isEmpty else { continue }
+
+                let similarity = cosineSimilarity(normalizedEmbedding, normalizedOwnerEmbedding)
+                if similarity > ownerMaxSimilarity {
+                    ownerMaxSimilarity = similarity
+                }
+            }
+
+            if ownerMaxSimilarity > bestSimilarity {
+                bestSimilarity = ownerMaxSimilarity
                 bestOwnerID = owner.id
             }
         }

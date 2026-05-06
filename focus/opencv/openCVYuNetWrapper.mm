@@ -71,9 +71,13 @@ using namespace std;
 
     CVPixelBufferUnlockBaseAddress(pixelBuffer, kCVPixelBufferLock_ReadOnly);
 
-    int targetW = _inputSize;
-    int targetH = (int)round((double)height * ((double)targetW / (double)width));
-    if (targetH < 1) targetH = 1;
+    int originalWidth = (int)width;
+    int originalHeight = (int)height;
+    int shortSide = std::max(1, std::min(originalWidth, originalHeight));
+    double scale = (double)_inputSize / (double)shortSide;
+
+    int targetW = std::max(1, (int)round((double)originalWidth * scale));
+    int targetH = std::max(1, (int)round((double)originalHeight * scale));
 
     cv::Mat small;
     cv::resize(bgr, small, cv::Size(targetW, targetH));
@@ -112,11 +116,16 @@ using namespace std;
         float lm_y = row[13] * scaleY;
         float score = row[14];
 
+        float clampedX = std::max(0.0f, std::min(x, (float)width - 1.0f));
+        float clampedY = std::max(0.0f, std::min(y, (float)height - 1.0f));
+        float clampedW = std::max(1.0f, std::min(w, (float)width - clampedX));
+        float clampedH = std::max(1.0f, std::min(h, (float)height - clampedY));
+
         NSDictionary *item = @{
-            @"x": @(x),
-            @"y": @(y),
-            @"width": @(w),
-            @"height": @(h),
+            @"x": @(clampedX),
+            @"y": @(clampedY),
+            @"width": @(clampedW),
+            @"height": @(clampedH),
             @"rightEyeX": @(re_x),
             @"rightEyeY": @(re_y),
             @"leftEyeX": @(le_x),

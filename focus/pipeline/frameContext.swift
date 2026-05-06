@@ -10,12 +10,16 @@ import AVFoundation
 import CoreVideo
 import CoreGraphics
 
+enum PipelineInputMode {
+    case preview
+    case recording
+}
+
 struct FrameContext {
-    let sampleBuffer: CMSampleBuffer
     let pixelBuffer: CVPixelBuffer
     let pts: CMTime
     let ptsUs: Int64
-    let sessionID: String
+    let sessionID: String?
     let frameIndex: Int
-    let isVideo: Bool
+    let mode: PipelineInputMode
 }

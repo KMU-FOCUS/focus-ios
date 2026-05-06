@@ -12,6 +12,13 @@ import CoreVideo
 
 final class PrivacyMaskRenderer {
     private let ciContext = CIContext(options: nil)
+    
+    private struct EllipseMaskParameters {
+        let center: CGPoint
+        let radiusX: CGFloat
+        let radiusY: CGFloat
+        let angleRadians: CGFloat
+    }
 
     func renderMasks(on pixelBuffer: CVPixelBuffer, tracks: [TrackedFace]) {
         let sourceImage = CIImage(cvPixelBuffer: pixelBuffer)
@@ -51,11 +58,11 @@ final class PrivacyMaskRenderer {
             return applyBBoxFallbackMask(to: image, track: track)
         }
 
-        let faceRect = expandedFaceRect(from: track.bbox)
+        let ellipse = ellipseParameters(for: landmarks)
+        let faceRect = ellipseBounds(for: ellipse).intersection(image.extent)
         let maskImage = makeEllipticalMask(
             extent: image.extent,
-            faceRect: faceRect,
-            landmarks: landmarks
+            ellipse: ellipse
         )
 
         let pixelated = pixelatedImage(from: image, faceRect: faceRect)
@@ -95,36 +102,95 @@ final class PrivacyMaskRenderer {
 
     private func makeEllipticalMask(
         extent: CGRect,
-        faceRect: CGRect,
-        landmarks: FaceLandmarks5
+        ellipse: EllipseMaskParameters
     ) -> CIImage {
-        let centerX = (landmarks.leftEye.x + landmarks.rightEye.x + landmarks.nose.x) / 3.0
-        let centerY = (landmarks.leftEye.y + landmarks.rightEye.y + landmarks.nose.y) / 3.0
+        let width = max(Int(ceil(extent.width)), 1)
+        let height = max(Int(ceil(extent.height)), 1)
 
-        guard let radial = CIFilter(name: "CIRadialGradient") else {
-            return solidRectMask(extent: extent, rect: faceRect)
+        guard let context = CGContext(
+            data: nil,
+            width: width,
+            height: height,
+            bitsPerComponent: 8,
+            bytesPerRow: 0,
+            space: CGColorSpaceCreateDeviceGray(),
+            bitmapInfo: CGImageAlphaInfo.none.rawValue
+        ) else {
+            return solidRectMask(extent: extent, rect: ellipseBounds(for: ellipse))
         }
 
-        radial.setValue(CIVector(x: centerX, y: centerY), forKey: "inputCenter")
-        radial.setValue(min(faceRect.width, faceRect.height) * 0.28, forKey: "inputRadius0")
-        radial.setValue(max(faceRect.width, faceRect.height) * 0.60, forKey: "inputRadius1")
-        radial.setValue(CIColor(red: 1, green: 1, blue: 1, alpha: 1), forKey: "inputColor0")
-        radial.setValue(CIColor(red: 1, green: 1, blue: 1, alpha: 0), forKey: "inputColor1")
+        context.setFillColor(gray: 0, alpha: 1)
+        context.fill(CGRect(origin: .zero, size: CGSize(width: width, height: height)))
 
-        let gradient = radial.outputImage?.cropped(to: extent)
-            ?? CIImage(color: .clear).cropped(to: extent)
+        context.setFillColor(gray: 1, alpha: 1)
+        context.translateBy(
+            x: ellipse.center.x - extent.origin.x,
+            y: ellipse.center.y - extent.origin.y
+        )
+        context.rotate(by: ellipse.angleRadians)
+        context.fillEllipse(
+            in: CGRect(
+                x: -ellipse.radiusX,
+                y: -ellipse.radiusY,
+                width: ellipse.radiusX * 2,
+                height: ellipse.radiusY * 2
+            )
+        )
 
-        let cropMask = solidRectMask(extent: extent, rect: faceRect)
-
-        guard let blend = CIFilter(name: "CIBlendWithAlphaMask") else {
-            return cropMask
+        guard let maskCGImage = context.makeImage() else {
+            return solidRectMask(extent: extent, rect: ellipseBounds(for: ellipse))
         }
 
-        blend.setValue(gradient, forKey: kCIInputImageKey)
-        blend.setValue(CIImage(color: .clear).cropped(to: extent), forKey: kCIInputBackgroundImageKey)
-        blend.setValue(cropMask, forKey: "inputMaskImage")
+        return CIImage(cgImage: maskCGImage).cropped(to: extent)
+    }
 
-        return blend.outputImage ?? cropMask
+    private func ellipseParameters(
+        for landmarks: FaceLandmarks5,
+        paddingRatio: CGFloat = 1.05
+    ) -> EllipseMaskParameters {
+        let eyeCenter = CGPoint(
+            x: (landmarks.leftEye.x + landmarks.rightEye.x) / 2.0,
+            y: (landmarks.leftEye.y + landmarks.rightEye.y) / 2.0
+        )
+        let mouthCenter = CGPoint(
+            x: (landmarks.leftMouth.x + landmarks.rightMouth.x) / 2.0,
+            y: (landmarks.leftMouth.y + landmarks.rightMouth.y) / 2.0
+        )
+        let eyeDistance = hypot(landmarks.leftEye.x - landmarks.rightEye.x, landmarks.leftEye.y - landmarks.rightEye.y)
+        let eyeMouthDistance = hypot(mouthCenter.x - eyeCenter.x, mouthCenter.y - eyeCenter.y)
+        let center = CGPoint(
+            x: eyeCenter.x + ((mouthCenter.x - eyeCenter.x) * 0.3),
+            y: eyeCenter.y + ((mouthCenter.y - eyeCenter.y) * 0.3)
+        )
+        let angleRadians = atan2(
+            landmarks.leftEye.y - landmarks.rightEye.y,
+            landmarks.leftEye.x - landmarks.rightEye.x
+        )
+
+        return EllipseMaskParameters(
+            center: center,
+            radiusX: eyeDistance * paddingRatio,
+            radiusY: eyeMouthDistance * 1.35 * paddingRatio,
+            angleRadians: angleRadians
+        )
+    }
+
+    private func ellipseBounds(for ellipse: EllipseMaskParameters) -> CGRect {
+        let cosine = cos(ellipse.angleRadians)
+        let sine = sin(ellipse.angleRadians)
+        let ux = ellipse.radiusX * cosine
+        let uy = ellipse.radiusX * sine
+        let vx = ellipse.radiusY * -sine
+        let vy = ellipse.radiusY * cosine
+        let halfWidth = sqrt((ux * ux) + (vx * vx))
+        let halfHeight = sqrt((uy * uy) + (vy * vy))
+
+        return CGRect(
+            x: ellipse.center.x - halfWidth,
+            y: ellipse.center.y - halfHeight,
+            width: halfWidth * 2,
+            height: halfHeight * 2
+        )
     }
 
     private func solidRectMask(extent: CGRect, rect: CGRect) -> CIImage {

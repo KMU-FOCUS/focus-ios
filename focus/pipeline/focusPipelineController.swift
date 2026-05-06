@@ -15,6 +15,18 @@ final class FocusPipelineController {
         var lastUpgradeAt: Date?
     }
 
+    private struct SoleOwnerVisibilityLock {
+        let ownerID: UUID
+        var lockedTrackID: Int?
+        var lastLockedTrack: TrackedFace?
+        var confirmedFrames: Int
+        var missingFrames: Int
+
+        var isActive: Bool {
+            confirmedFrames >= FocusConstants.soleOwnerLockConfirmFrames
+        }
+    }
+
     // MARK: - Public
     private(set) var state: PipelineState = .idle
     var shouldMaskRecordingFaces = true
@@ -35,6 +47,7 @@ final class FocusPipelineController {
     private let lock = NSLock()
 
     // MARK: - Dependencies
+    private let frameProcessor: FocusFrameProcessor
     private let detector: YuNetDetecting
     private let tdmmInferencer: Facial3DMMInferring
     private let arcFaceExtractor: ArcFaceEmbeddingExtracting?
@@ -53,12 +66,15 @@ final class FocusPipelineController {
     // MARK: - Runtime
     private var sessionID: String?
     private var frameIndex: Int = 0
+    private var previewFrameIndex: Int = 0
     private var activeRecordingURL: URL?
     private var pendingManualOwnerTrackIDs: Set<Int> = []
     private var manualOwnerBindings: [Int: ManualOwnerBinding] = [:]
     private var manualOwnerRegistrationLastAttemptAt: [Int: Date] = [:]
+    private var soleOwnerVisibilityLock: SoleOwnerVisibilityLock?
 
     init(
+        frameProcessor: FocusFrameProcessor,
         detector: YuNetDetecting,
         tdmmInferencer: Facial3DMMInferring,
         arcFaceExtractor: ArcFaceEmbeddingExtracting? = nil,
@@ -72,6 +88,7 @@ final class FocusPipelineController {
         syncMonitor: AudioVideoSyncMonitor? = nil,
         ownerStore: OwnerEmbeddingStore? = nil
     ) {
+        self.frameProcessor = frameProcessor
         self.detector = detector
         self.tdmmInferencer = tdmmInferencer
         self.arcFaceExtractor = arcFaceExtractor
@@ -98,11 +115,6 @@ final class FocusPipelineController {
         self.sessionID = sessionID
         self.frameIndex = 0
         self.activeRecordingURL = nil
-        self.pendingManualOwnerTrackIDs.removeAll()
-        self.manualOwnerBindings.removeAll()
-        self.manualOwnerRegistrationLastAttemptAt.removeAll()
-
-        tracker.reset()
         metadataRepository?.startSession(sessionID: sessionID)
         timestampCorrector?.reset()
         syncMonitor?.reset()
@@ -167,13 +179,43 @@ final class FocusPipelineController {
         }
 
         let context = FrameContext(
-            sampleBuffer: sampleBuffer,
             pixelBuffer: pixelBuffer,
             pts: pts,
             ptsUs: ptsUs,
             sessionID: currentSessionID,
             frameIndex: currentFrameIndex,
-            isVideo: true
+            mode: .recording
+        )
+
+        inferenceQueue.async { [weak self] in
+            self?.runSyncPipeline(context: context)
+        }
+    }
+
+    func processPreviewSampleBuffer(_ sampleBuffer: CMSampleBuffer) {
+        lock.lock()
+        let currentState = state
+        guard currentState != .running && currentState != .stopping else {
+            lock.unlock()
+            return
+        }
+        previewFrameIndex += 1
+        let currentFrameIndex = previewFrameIndex
+        lock.unlock()
+
+        guard let pixelBuffer = CMSampleBufferGetImageBuffer(sampleBuffer) else {
+            return
+        }
+
+        let pts = CMSampleBufferGetPresentationTimeStamp(sampleBuffer)
+        let ptsUs = Int64(CMTimeGetSeconds(pts) * FocusConstants.ptsScaleMicroseconds)
+        let context = FrameContext(
+            pixelBuffer: pixelBuffer,
+            pts: pts,
+            ptsUs: ptsUs,
+            sessionID: nil,
+            frameIndex: currentFrameIndex,
+            mode: .preview
         )
 
         inferenceQueue.async { [weak self] in
@@ -201,9 +243,39 @@ final class FocusPipelineController {
         lock.unlock()
     }
 
+    func bindExistingOwner(ownerID: UUID, to trackID: Int) {
+        stateMachine?.removeTrack(trackID)
+
+        lock.lock()
+        pendingManualOwnerTrackIDs.remove(trackID)
+        manualOwnerRegistrationLastAttemptAt[trackID] = nil
+        manualOwnerBindings[trackID] = ManualOwnerBinding(
+            ownerID: ownerID,
+            lastUpgradeAt: Date()
+        )
+        lock.unlock()
+
+        var tracks = tracker.tracks
+        var didUpdate = false
+        for index in tracks.indices where tracks[index].trackID == trackID {
+            tracks[index].label = .owner
+            tracks[index].ownerID = ownerID
+            didUpdate = true
+        }
+
+        if didUpdate {
+            tracker.replaceTracks(with: tracks)
+        }
+    }
+
     func removeManualOwner(ownerID: UUID) {
+        stateMachine?.removeOwner(ownerID: ownerID)
+
         lock.lock()
         manualOwnerBindings = manualOwnerBindings.filter { $0.value.ownerID != ownerID }
+        if soleOwnerVisibilityLock?.ownerID == ownerID {
+            soleOwnerVisibilityLock = nil
+        }
         lock.unlock()
 
         forceTracksToOther(ownerID: ownerID, trackID: nil)
@@ -216,12 +288,17 @@ final class FocusPipelineController {
             _ = ownerStore?.removeOwner(ownerID: ownerID)
         }
 
+        stateMachine?.removeTrack(trackID)
+
         lock.lock()
         pendingManualOwnerTrackIDs.remove(trackID)
         manualOwnerBindings.removeValue(forKey: trackID)
         manualOwnerRegistrationLastAttemptAt[trackID] = nil
         if let ownerID {
             manualOwnerBindings = manualOwnerBindings.filter { $0.value.ownerID != ownerID }
+            if soleOwnerVisibilityLock?.ownerID == ownerID {
+                soleOwnerVisibilityLock = nil
+            }
         }
         lock.unlock()
 
@@ -232,64 +309,76 @@ final class FocusPipelineController {
         }
     }
 
+    func resetAnalysisState(clearManualOwnerBindings: Bool = true) {
+        frameProcessor.reset()
+
+        lock.lock()
+        frameIndex = 0
+        previewFrameIndex = 0
+
+        if clearManualOwnerBindings {
+            pendingManualOwnerTrackIDs.removeAll()
+            manualOwnerBindings.removeAll()
+        } else {
+            pendingManualOwnerTrackIDs.removeAll()
+        }
+
+        manualOwnerRegistrationLastAttemptAt.removeAll()
+        soleOwnerVisibilityLock = nil
+        lock.unlock()
+    }
+
     // MARK: - Pipeline Core
     private func runSyncPipeline(context: FrameContext) {
         do {
-            let detections = try detector.detectFaces(from: context.pixelBuffer)
-                .filter { $0.confidence >= FocusConstants.yunetConfidenceThreshold }
-
-            let tdmmList: [TDMMCoefficients?] = try detections.map {
-                try tdmmInferencer.inferTDMM(from: context.pixelBuffer, face: $0)
-            }
-
-            var trackedFaces = tracker.update(
-                detections: detections,
-                tdmmList: tdmmList,
+            let processedFrame = try frameProcessor.process(
+                pixelBuffer: context.pixelBuffer,
+                timestampMs: context.ptsUs / 1_000,
                 frameIndex: context.frameIndex
             )
-
-            if let stateMachine, let arcFaceExtractor {
-                enrichLabelsIfNeeded(
-                    trackedFaces: &trackedFaces,
-                    detections: detections,
-                    pixelBuffer: context.pixelBuffer,
-                    stateMachine: stateMachine,
-                    arcFaceExtractor: arcFaceExtractor
-                )
-            }
+            var trackedFaces = processedFrame.trackedFaces
 
             applyManualOwnerOverrides(&trackedFaces)
             processManualOwnerRegistrationsIfNeeded(
                 trackedFaces: &trackedFaces,
-                detections: detections,
+                detections: processedFrame.detections,
+                tdmmList: processedFrame.tdmmList,
                 pixelBuffer: context.pixelBuffer
             )
-            tracker.replaceTracks(with: trackedFaces)
+            applySoleOwnerExclusionIfNeeded(&trackedFaces)
+            tracker.mergeAnnotations(from: trackedFaces)
 
-            let metadataFaceCount = metadataRepository?.appendFrame(
-                sessionID: context.sessionID,
-                ptsUs: context.ptsUs,
-                tracks: trackedFaces
-            ) ?? 0
+            let metadataFaceCount: Int
+            if context.mode == .recording, let sessionID = context.sessionID {
+                metadataFaceCount = metadataRepository?.appendFrame(
+                    sessionID: sessionID,
+                    ptsUs: context.ptsUs,
+                    tracks: trackedFaces
+                ) ?? 0
+            } else {
+                metadataFaceCount = 0
+            }
 
             DispatchQueue.main.async { [weak self] in
                 self?.onPreviewFrame?(context.pixelBuffer, trackedFaces)
             }
 
-            dispatchLabelRefineIfNeeded(trackedFaces: trackedFaces)
-            dispatchOwnerTaskIfNeeded(trackedFaces: trackedFaces)
+            if context.mode == .recording, let sessionID = context.sessionID {
+                dispatchLabelRefineIfNeeded(trackedFaces: trackedFaces)
+                dispatchOwnerTaskIfNeeded(trackedFaces: trackedFaces)
 
-            syncMonitor?.recordVideoPTS(context.pts)
-            appendRecordingFrameIfNeeded(
-                pixelBuffer: context.pixelBuffer,
-                tracks: trackedFaces,
-                pts: context.pts,
-                sessionID: context.sessionID
-            )
+                syncMonitor?.recordVideoPTS(context.pts)
+                appendRecordingFrameIfNeeded(
+                    pixelBuffer: context.pixelBuffer,
+                    tracks: trackedFaces,
+                    pts: context.pts,
+                    sessionID: sessionID
+                )
+            }
 
             let snapshot = PipelineDebugSnapshot(
                 frameIndex: context.frameIndex,
-                detectedFaceCount: detections.count,
+                detectedFaceCount: processedFrame.detections.count,
                 trackedFaceCount: trackedFaces.count,
                 metadataFaceCount: metadataFaceCount,
                 ptsUs: context.ptsUs
@@ -309,16 +398,33 @@ final class FocusPipelineController {
     private func enrichLabelsIfNeeded(
         trackedFaces: inout [TrackedFace],
         detections: [DetectedFace],
+        tdmmList: [TDMMCoefficients?],
         pixelBuffer: CVPixelBuffer,
         stateMachine: TrackStateMachine,
         arcFaceExtractor: ArcFaceEmbeddingExtracting
     ) {
+        if !trackedFaces.isEmpty {
+            stateMachine.beginFrame(
+                seenTrackIDs: Set(
+                    trackedFaces
+                        .filter { $0.missedFrames == 0 }
+                        .map(\.trackID)
+                )
+            )
+        }
+
         for index in trackedFaces.indices {
+            if trackedFaces[index].missedFrames == 0, trackedFaces[index].tdmm != nil {
+                stateMachine.recordFrameSeen(trackID: trackedFaces[index].trackID)
+            }
+            stateMachine.applyState(to: &trackedFaces[index])
+
             let isFrontal = Self.isFrontalFace(landmarks: trackedFaces[index].landmarks)
 
             guard let matchedDetection = bestMatchingDetection(
                 for: trackedFaces[index],
-                from: detections
+                from: detections,
+                tdmmList: tdmmList
             ) else {
                 continue
             }
@@ -365,9 +471,33 @@ final class FocusPipelineController {
 
     private func bestMatchingDetection(
         for trackedFace: TrackedFace,
-        from detections: [DetectedFace]
+        from detections: [DetectedFace],
+        tdmmList: [TDMMCoefficients?] = []
     ) -> DetectedFace? {
-        detections.max { lhs, rhs in
+        var bestDetectionIndex: Int?
+        var bestCost = Float.greatestFiniteMagnitude
+
+        for detectionIndex in detections.indices {
+            let detectionTDMM = tdmmList.indices.contains(detectionIndex) ? tdmmList[detectionIndex] : nil
+            guard let candidate = TrackCost.combinedCost(
+                track: trackedFace,
+                detection: detections[detectionIndex],
+                detectionTDMM: detectionTDMM
+            ) else {
+                continue
+            }
+
+            if candidate.cost < bestCost {
+                bestCost = candidate.cost
+                bestDetectionIndex = detectionIndex
+            }
+        }
+
+        if let bestDetectionIndex {
+            return detections[bestDetectionIndex]
+        }
+
+        return detections.max { lhs, rhs in
             intersectionOverUnion(lhs.bbox, trackedFace.bbox) < intersectionOverUnion(rhs.bbox, trackedFace.bbox)
         }
     }
@@ -485,6 +615,7 @@ final class FocusPipelineController {
 
     // MARK: - Helpers
     private func applyManualOwnerOverrides(_ trackedFaces: inout [TrackedFace]) {
+        reassignManualOwnerBindingsIfNeeded(in: trackedFaces)
         pruneManualOwnerState(validTrackIDs: Set(trackedFaces.map(\.trackID)))
 
         lock.lock()
@@ -503,11 +634,327 @@ final class FocusPipelineController {
         }
     }
 
+    private func applySoleOwnerExclusionIfNeeded(_ trackedFaces: inout [TrackedFace]) {
+        updateSoleOwnerVisibilityLock(using: trackedFaces)
+
+        lock.lock()
+        let currentLock = soleOwnerVisibilityLock
+        lock.unlock()
+
+        guard let currentLock,
+              currentLock.isActive else {
+            return
+        }
+
+        for index in trackedFaces.indices {
+            if let lockedTrackID = currentLock.lockedTrackID,
+               trackedFaces[index].trackID == lockedTrackID {
+                trackedFaces[index].label = .owner
+                trackedFaces[index].ownerID = currentLock.ownerID
+                continue
+            }
+
+            trackedFaces[index].label = .other
+            trackedFaces[index].ownerID = nil
+            trackedFaces[index].frontalEmbeddingSamples.removeAll()
+            trackedFaces[index].hasRetriedOther = true
+        }
+    }
+
+    private func updateSoleOwnerVisibilityLock(using trackedFaces: [TrackedFace]) {
+        guard let ownerStore else {
+            lock.lock()
+            soleOwnerVisibilityLock = nil
+            lock.unlock()
+            return
+        }
+
+        let owners = ownerStore.allOwners()
+        guard owners.count == 1 else {
+            lock.lock()
+            soleOwnerVisibilityLock = nil
+            lock.unlock()
+            return
+        }
+
+        let soleOwnerID = owners[0].id
+        let visibleTracks = trackedFaces.filter { $0.missedFrames == 0 }
+
+        lock.lock()
+        let bindingsByTrackID = manualOwnerBindings
+        let pendingTrackIDs = pendingManualOwnerTrackIDs
+        lock.unlock()
+
+        let boundTrackID = bindingsByTrackID.first { $0.value.ownerID == soleOwnerID }?.key
+        let hasCompetingPendingRegistration = pendingTrackIDs.contains { trackID in
+            if trackID == boundTrackID { return false }
+            return bindingsByTrackID[trackID]?.ownerID != soleOwnerID
+        }
+
+        guard !hasCompetingPendingRegistration else {
+            lock.lock()
+            soleOwnerVisibilityLock = nil
+            lock.unlock()
+            return
+        }
+
+        lock.lock()
+        let existingLock = soleOwnerVisibilityLock
+        lock.unlock()
+
+        var nextLock = existingLock?.ownerID == soleOwnerID
+            ? existingLock
+            : SoleOwnerVisibilityLock(
+                ownerID: soleOwnerID,
+                lockedTrackID: nil,
+                lastLockedTrack: nil,
+                confirmedFrames: 0,
+                missingFrames: 0
+            )
+
+        if let preservedTrack = preservedLockedTrack(
+            from: nextLock,
+            visibleTracks: visibleTracks
+        ) {
+            let currentConfirmedFrames = nextLock?.confirmedFrames ?? 0
+            nextLock?.lockedTrackID = preservedTrack.trackID
+            nextLock?.lastLockedTrack = preservedTrack
+            nextLock?.confirmedFrames = max(
+                currentConfirmedFrames,
+                FocusConstants.soleOwnerLockConfirmFrames
+            )
+            nextLock?.missingFrames = 0
+            lock.lock()
+            soleOwnerVisibilityLock = nextLock
+            lock.unlock()
+            return
+        }
+
+        if let explicitTrack = explicitSoleOwnerCandidate(
+            ownerID: soleOwnerID,
+            boundTrackID: boundTrackID,
+            visibleTracks: visibleTracks
+        ) {
+            let confirmedFrames: Int
+            if explicitTrack.trackID == boundTrackID {
+                confirmedFrames = FocusConstants.soleOwnerLockConfirmFrames
+            } else if nextLock?.lockedTrackID == explicitTrack.trackID {
+                confirmedFrames = min(
+                    (nextLock?.confirmedFrames ?? 0) + 1,
+                    FocusConstants.soleOwnerLockConfirmFrames + 1
+                )
+            } else {
+                confirmedFrames = min(
+                    max(nextLock?.confirmedFrames ?? 0, 0) + 1,
+                    FocusConstants.soleOwnerLockConfirmFrames
+                )
+            }
+
+            nextLock?.lockedTrackID = explicitTrack.trackID
+            nextLock?.lastLockedTrack = explicitTrack
+            nextLock?.confirmedFrames = confirmedFrames
+            nextLock?.missingFrames = 0
+            lock.lock()
+            soleOwnerVisibilityLock = nextLock
+            lock.unlock()
+            return
+        }
+
+        if let transferredTrack = transferredSoleOwnerCandidate(
+            from: nextLock,
+            excluding: pendingTrackIDs,
+            visibleTracks: visibleTracks
+        ) {
+            let currentConfirmedFrames = nextLock?.confirmedFrames ?? 0
+            nextLock?.lockedTrackID = transferredTrack.trackID
+            nextLock?.lastLockedTrack = transferredTrack
+            nextLock?.confirmedFrames = max(
+                currentConfirmedFrames,
+                FocusConstants.soleOwnerLockConfirmFrames
+            )
+            nextLock?.missingFrames = 0
+            lock.lock()
+            soleOwnerVisibilityLock = nextLock
+            lock.unlock()
+            return
+        }
+
+        guard var existingLock = nextLock else {
+            lock.lock()
+            soleOwnerVisibilityLock = nil
+            lock.unlock()
+            return
+        }
+
+        existingLock.lockedTrackID = nil
+        existingLock.missingFrames += 1
+
+        if existingLock.missingFrames > FocusConstants.soleOwnerLockGraceFrames {
+            lock.lock()
+            soleOwnerVisibilityLock = nil
+            lock.unlock()
+        } else {
+            lock.lock()
+            soleOwnerVisibilityLock = existingLock
+            lock.unlock()
+        }
+    }
+
+    private func preservedLockedTrack(
+        from lock: SoleOwnerVisibilityLock?,
+        visibleTracks: [TrackedFace]
+    ) -> TrackedFace? {
+        guard let lockedTrackID = lock?.lockedTrackID else {
+            return nil
+        }
+
+        return visibleTracks.first { $0.trackID == lockedTrackID }
+    }
+
+    private func explicitSoleOwnerCandidate(
+        ownerID: UUID,
+        boundTrackID: Int?,
+        visibleTracks: [TrackedFace]
+    ) -> TrackedFace? {
+        if let boundTrackID,
+           let boundTrack = visibleTracks.first(where: { $0.trackID == boundTrackID }) {
+            return boundTrack
+        }
+
+        return visibleTracks
+            .filter { $0.ownerID == ownerID }
+            .sorted(by: soleOwnerCandidatePriority)
+            .first
+    }
+
+    private func transferredSoleOwnerCandidate(
+        from lock: SoleOwnerVisibilityLock?,
+        excluding pendingTrackIDs: Set<Int>,
+        visibleTracks: [TrackedFace]
+    ) -> TrackedFace? {
+        guard let sourceTrack = lock?.lastLockedTrack else {
+            return nil
+        }
+
+        var bestTrack: TrackedFace?
+        var bestCost = Float.greatestFiniteMagnitude
+
+        for track in visibleTracks {
+            guard !pendingTrackIDs.contains(track.trackID) else {
+                continue
+            }
+
+            let candidateDetection = DetectedFace(
+                bbox: track.bbox,
+                landmarks: track.landmarks,
+                confidence: 1
+            )
+
+            guard let candidate = TrackCost.combinedCost(
+                track: sourceTrack,
+                detection: candidateDetection,
+                detectionTDMM: track.tdmm
+            ),
+            candidate.cost <= FocusConstants.soleOwnerLockTransferMaxCost else {
+                continue
+            }
+
+            if candidate.cost < bestCost {
+                bestCost = candidate.cost
+                bestTrack = track
+            }
+        }
+
+        return bestTrack
+    }
+
+    private func soleOwnerCandidatePriority(_ lhs: TrackedFace, _ rhs: TrackedFace) -> Bool {
+        if lhs.label != rhs.label {
+            return lhs.label == .owner
+        }
+
+        if lhs.framesSeen != rhs.framesSeen {
+            return lhs.framesSeen > rhs.framesSeen
+        }
+
+        if lhs.age != rhs.age {
+            return lhs.age > rhs.age
+        }
+
+        return (lhs.bbox.width * lhs.bbox.height) > (rhs.bbox.width * rhs.bbox.height)
+    }
+
+    private func reassignManualOwnerBindingsIfNeeded(in trackedFaces: [TrackedFace]) {
+        lock.lock()
+        defer { lock.unlock() }
+
+        guard !pendingManualOwnerTrackIDs.isEmpty || !manualOwnerBindings.isEmpty else {
+            return
+        }
+
+        let latchedTrackIDs = trackedFaces.compactMap { track -> Int? in
+            if pendingManualOwnerTrackIDs.contains(track.trackID) || manualOwnerBindings[track.trackID] != nil {
+                return track.trackID
+            }
+            return nil
+        }
+
+        guard !latchedTrackIDs.isEmpty else { return }
+
+        var transferredTargetIDs = Set<Int>()
+
+        for sourceTrackID in latchedTrackIDs {
+            guard let sourceTrack = trackedFaces.first(where: { $0.trackID == sourceTrackID }) else {
+                continue
+            }
+
+            var bestTargetTrackID: Int?
+            var bestScore: CGFloat = -.greatestFiniteMagnitude
+
+            for targetTrack in trackedFaces {
+                guard targetTrack.trackID != sourceTrack.trackID,
+                      !pendingManualOwnerTrackIDs.contains(targetTrack.trackID),
+                      manualOwnerBindings[targetTrack.trackID] == nil,
+                      !transferredTargetIDs.contains(targetTrack.trackID),
+                      targetTrack.missedFrames == 0,
+                      sourceTrack.missedFrames > targetTrack.missedFrames,
+                      isLikelyDuplicateTrackedFace(sourceTrack, other: targetTrack) else {
+                    continue
+                }
+
+                let score = duplicateTransferScore(source: sourceTrack, target: targetTrack)
+                if score > bestScore {
+                    bestScore = score
+                    bestTargetTrackID = targetTrack.trackID
+                }
+            }
+
+            guard let bestTargetTrackID else { continue }
+
+            if pendingManualOwnerTrackIDs.remove(sourceTrackID) != nil {
+                pendingManualOwnerTrackIDs.insert(bestTargetTrackID)
+            }
+
+            if let binding = manualOwnerBindings.removeValue(forKey: sourceTrackID) {
+                manualOwnerBindings[bestTargetTrackID] = binding
+            }
+
+            if let lastAttempt = manualOwnerRegistrationLastAttemptAt.removeValue(forKey: sourceTrackID) {
+                manualOwnerRegistrationLastAttemptAt[bestTargetTrackID] = lastAttempt
+            }
+
+            transferredTargetIDs.insert(bestTargetTrackID)
+        }
+    }
+
     private func processManualOwnerRegistrationsIfNeeded(
         trackedFaces: inout [TrackedFace],
         detections: [DetectedFace],
+        tdmmList: [TDMMCoefficients?],
         pixelBuffer: CVPixelBuffer
     ) {
+        let visibleTrackCount = trackedFaces.filter { $0.missedFrames == 0 }.count
+
         for index in trackedFaces.indices {
             let track = trackedFaces[index]
 
@@ -520,14 +967,17 @@ final class FocusPipelineController {
                 registerManualOwnerIfPossible(
                     track: &trackedFaces[index],
                     detections: detections,
+                    tdmmList: tdmmList,
                     pixelBuffer: pixelBuffer
                 )
             } else if let binding {
                 upgradeManualOwnerIfPossible(
                     track: &trackedFaces[index],
                     detections: detections,
+                    tdmmList: tdmmList,
                     pixelBuffer: pixelBuffer,
-                    binding: binding
+                    binding: binding,
+                    visibleTrackCount: visibleTrackCount
                 )
             }
         }
@@ -536,6 +986,7 @@ final class FocusPipelineController {
     private func registerManualOwnerIfPossible(
         track: inout TrackedFace,
         detections: [DetectedFace],
+        tdmmList: [TDMMCoefficients?],
         pixelBuffer: CVPixelBuffer
     ) {
         guard shouldRetryManualOwnerRegistration(
@@ -550,7 +1001,7 @@ final class FocusPipelineController {
               Self.isFrontalFace(landmarks: track.landmarks),
               let arcFaceExtractor,
               let ownerStore,
-              let matchedDetection = bestMatchingDetection(for: track, from: detections) else {
+              let matchedDetection = bestMatchingDetection(for: track, from: detections, tdmmList: tdmmList) else {
             return
         }
 
@@ -570,6 +1021,8 @@ final class FocusPipelineController {
                     snapshotURL: snapshotURL
                 )
             }
+
+            stateMachine?.removeTrack(track.trackID)
 
             lock.lock()
             pendingManualOwnerTrackIDs.remove(track.trackID)
@@ -598,21 +1051,36 @@ final class FocusPipelineController {
     private func upgradeManualOwnerIfPossible(
         track: inout TrackedFace,
         detections: [DetectedFace],
+        tdmmList: [TDMMCoefficients?],
         pixelBuffer: CVPixelBuffer,
-        binding: ManualOwnerBinding
+        binding: ManualOwnerBinding,
+        visibleTrackCount: Int
     ) {
         guard track.bbox.width >= FocusConstants.minManualOwnerFaceSize,
               track.bbox.height >= FocusConstants.minManualOwnerFaceSize,
               Self.isFrontalFace(landmarks: track.landmarks),
               let arcFaceExtractor,
               let ownerStore,
-              let matchedDetection = bestMatchingDetection(for: track, from: detections),
+              let matchedDetection = bestMatchingDetection(for: track, from: detections, tdmmList: tdmmList),
               shouldRetryManualOwnerUpgrade(binding: binding, intervalMs: FocusConstants.ownerUpgradeRetryIntervalMs) else {
             return
         }
 
         do {
             let embedding = try arcFaceExtractor.extractEmbedding(from: pixelBuffer, face: matchedDetection)
+            guard shouldUpgradeManualOwner(
+                ownerID: binding.ownerID,
+                with: embedding,
+                visibleTrackCount: visibleTrackCount,
+                ownerStore: ownerStore
+            ) else {
+                FocusLogger.info(
+                    "owner 업그레이드 건너뜀(track \(track.trackID)): 다중 얼굴이거나 기존 owner와 유사도가 충분하지 않습니다.",
+                    category: .pipeline
+                )
+                return
+            }
+
             let snapshotURL = try? persistOwnerSnapshot(
                 from: pixelBuffer,
                 rect: matchedDetection.bbox,
@@ -656,16 +1124,94 @@ final class FocusPipelineController {
 
     private func pruneManualOwnerState(validTrackIDs: Set<Int>) {
         lock.lock()
-        pendingManualOwnerTrackIDs = Set(pendingManualOwnerTrackIDs.filter { validTrackIDs.contains($0) })
-        manualOwnerBindings = manualOwnerBindings.reduce(into: [:]) { partialResult, entry in
-            guard validTrackIDs.contains(entry.key) else { return }
-            partialResult[entry.key] = entry.value
-        }
         manualOwnerRegistrationLastAttemptAt = manualOwnerRegistrationLastAttemptAt.reduce(into: [:]) { partialResult, entry in
-            guard validTrackIDs.contains(entry.key) else { return }
+            guard pendingManualOwnerTrackIDs.contains(entry.key) || manualOwnerBindings[entry.key] != nil else {
+                return
+            }
             partialResult[entry.key] = entry.value
         }
         lock.unlock()
+    }
+
+    private func isLikelyDuplicateTrackedFace(_ lhs: TrackedFace, other rhs: TrackedFace) -> Bool {
+        let iou = CGFloat(TrackCost.intersectionOverUnion(lhs.bbox, rhs.bbox))
+        if iou >= 0.55 {
+            return true
+        }
+
+        let lhsCenter = CGPoint(x: lhs.bbox.midX, y: lhs.bbox.midY)
+        let rhsCenter = CGPoint(x: rhs.bbox.midX, y: rhs.bbox.midY)
+        let dx = lhsCenter.x - rhsCenter.x
+        let dy = lhsCenter.y - rhsCenter.y
+        let centerDistance = sqrt(dx * dx + dy * dy)
+        let minSide = max(1, min(lhs.bbox.width, lhs.bbox.height, rhs.bbox.width, rhs.bbox.height))
+
+        return iou >= 0.35 && centerDistance <= minSide * 0.28
+    }
+
+    private func duplicateTransferScore(source: TrackedFace, target: TrackedFace) -> CGFloat {
+        let iou = CGFloat(TrackCost.intersectionOverUnion(source.bbox, target.bbox))
+        let sourceCenter = CGPoint(x: source.bbox.midX, y: source.bbox.midY)
+        let targetCenter = CGPoint(x: target.bbox.midX, y: target.bbox.midY)
+        let dx = sourceCenter.x - targetCenter.x
+        let dy = sourceCenter.y - targetCenter.y
+        let distance = sqrt(dx * dx + dy * dy)
+        let scale = max(1, min(source.bbox.width, source.bbox.height, target.bbox.width, target.bbox.height))
+        return (iou * 10.0) - (distance / scale)
+    }
+
+    private func shouldUpgradeManualOwner(
+        ownerID: UUID,
+        with embedding: [Float],
+        visibleTrackCount: Int,
+        ownerStore: OwnerEmbeddingStore
+    ) -> Bool {
+        guard visibleTrackCount <= 1 else {
+            return false
+        }
+
+        guard let ownerRecord = ownerStore.allOwners().first(where: { $0.id == ownerID }) else {
+            return false
+        }
+
+        let normalizedEmbedding = l2Normalize(embedding)
+        guard !normalizedEmbedding.isEmpty else {
+            return false
+        }
+
+        let bestSimilarity = ownerRecord.embeddings.reduce(Float(-1)) { currentBest, storedEmbedding in
+            let normalizedStoredEmbedding = l2Normalize(storedEmbedding)
+            guard !normalizedStoredEmbedding.isEmpty else {
+                return currentBest
+            }
+
+            let similarity = cosineSimilarity(normalizedEmbedding, normalizedStoredEmbedding)
+            return max(currentBest, similarity)
+        }
+
+        return bestSimilarity >= FocusConstants.ownerUpgradeSimilarityThreshold
+    }
+
+    private func l2Normalize(_ vector: [Float]) -> [Float] {
+        guard !vector.isEmpty else { return [] }
+
+        let norm = sqrt(vector.reduce(Float(0)) { partialResult, value in
+            partialResult + (value * value)
+        })
+
+        guard norm > 0 else { return [] }
+        return vector.map { $0 / norm }
+    }
+
+    private func cosineSimilarity(_ lhs: [Float], _ rhs: [Float]) -> Float {
+        guard lhs.count == rhs.count, !lhs.isEmpty else { return -1 }
+
+        var dot: Float = 0
+        for index in lhs.indices {
+            dot += lhs[index] * rhs[index]
+        }
+
+        return dot
     }
 
     private func persistOwnerSnapshot(
