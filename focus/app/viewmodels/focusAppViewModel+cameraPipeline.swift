@@ -145,6 +145,8 @@ extension FocusAppViewModel {
                     if let recordingURL = outputs.recordingURL {
                         await self.saveRecordingToPhotoLibrary(recordingURL)
                     }
+
+                    await self.presentDummyPostStreamReport(from: outputs)
                 }
             }
 

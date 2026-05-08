@@ -58,6 +58,16 @@ struct DesignSystemTestView: View {
         .task {
             await viewModel.prepareCameraIfNeeded()
         }
+        .sheet(item: $viewModel.completedStreamReport) { report in
+            NavigationStack {
+                PostStreamReportSummarySheetView(
+                    report: report,
+                    onClose: { viewModel.dismissCompletedStreamReport() }
+                )
+            }
+            .presentationDetents([.medium, .large])
+            .presentationDragIndicator(.visible)
+        }
         .alert("오류", isPresented: $viewModel.showErrorAlert) {
             Button("확인", role: .cancel) { }
         } message: {

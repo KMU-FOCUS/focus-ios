@@ -28,6 +28,7 @@ final class FocusAppViewModel: ObservableObject {
     @Published var errorMessage: String?
     @Published var cameraFacing: CameraFacing = .front
     @Published var privacyMode: PrivacyMenuMode = .avatar
+    @Published var completedStreamReport: PostStreamAnalysisReport?
 
     let cameraManager = CameraSessionManager()
 
