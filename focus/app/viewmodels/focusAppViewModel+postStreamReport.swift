@@ -8,7 +8,7 @@
 import AVFoundation
 
 extension FocusAppViewModel {
-    func presentDummyPostStreamReport(from outputs: PipelineSessionOutputs) async {
+    func presentPostStreamReport(from outputs: PipelineSessionOutputs) async {
         let resolvedDuration = await resolvedDurationSec(from: outputs)
         completedStreamReport = PostStreamAnalysisReport.dummy(
             sessionID: sessionID,
@@ -19,6 +19,15 @@ extension FocusAppViewModel {
 
     func dismissCompletedStreamReport() {
         completedStreamReport = nil
+    }
+
+    func presentReportArchive() {
+        archivedStreamReports = PostStreamAnalysisReport.dummyArchive()
+        isReportArchivePresented = true
+    }
+
+    func dismissReportArchive() {
+        isReportArchivePresented = false
     }
 
     private func resolvedDurationSec(from outputs: PipelineSessionOutputs) async -> Int {

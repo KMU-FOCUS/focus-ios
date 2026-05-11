@@ -68,6 +68,16 @@ struct DesignSystemTestView: View {
             .presentationDetents([.medium, .large])
             .presentationDragIndicator(.visible)
         }
+        .sheet(isPresented: $viewModel.isReportArchivePresented) {
+            NavigationStack {
+                PostStreamReportArchiveView(
+                    reports: viewModel.archivedStreamReports,
+                    onClose: { viewModel.dismissReportArchive() }
+                )
+            }
+            .presentationDetents([.large])
+            .presentationDragIndicator(.visible)
+        }
         .alert("오류", isPresented: $viewModel.showErrorAlert) {
             Button("확인", role: .cancel) { }
         } message: {
@@ -222,6 +232,8 @@ private extension DesignSystemTestView {
                     cameraToggleSection
 
                     privacyToggleSection
+
+                    menuActionSection
                 }
                 .padding(.top, 30)
                 .padding(.horizontal, 24)
@@ -403,6 +415,81 @@ private extension DesignSystemTestView {
                 onSelect: { viewModel.setPrivacyMode($0) }
             )
         }
+    }
+
+    var menuActionSection: some View {
+        VStack(alignment: .leading, spacing: 12) {
+            Text("추가 기능")
+                .font(.system(size: 15, weight: .semibold, design: .rounded))
+                .foregroundStyle(PreviewTheme.text.opacity(0.68))
+
+            VStack(spacing: 10) {
+                menuWideActionButton(
+                    icon: "book.pages.fill",
+                    title: "방송 회고록 보기",
+                    subtitle: "날짜별 방송 리포트 확인",
+                    accent: PreviewTheme.primary
+                ) {
+                    isMenuPresented = false
+                    viewModel.presentReportArchive()
+                }
+
+                menuWideActionButton(
+                    icon: "film.stack.fill",
+                    title: "원본클립 저장",
+                    subtitle: "최근 1분 무모자이크 저장",
+                    accent: PreviewTheme.stop
+                ) {
+                    viewModel.saveOriginalClipPlaceholder()
+                }
+            }
+        }
+    }
+
+    func menuWideActionButton(
+        icon: String,
+        title: String,
+        subtitle: String,
+        accent: Color,
+        action: @escaping () -> Void
+    ) -> some View {
+        Button(action: action) {
+            HStack(spacing: 14) {
+                Image(systemName: icon)
+                    .font(.system(size: 16, weight: .bold))
+                    .foregroundStyle(accent)
+                    .frame(width: 40, height: 40)
+                    .background(
+                        Circle()
+                            .fill(accent.opacity(0.10))
+                    )
+
+                VStack(alignment: .leading, spacing: 4) {
+                    Text(title)
+                        .font(.system(size: 16, weight: .bold, design: .rounded))
+                        .foregroundStyle(PreviewTheme.text)
+
+                    Text(subtitle)
+                        .font(.system(size: 12, weight: .medium, design: .rounded))
+                        .foregroundStyle(PreviewTheme.text.opacity(0.56))
+                }
+
+                Spacer(minLength: 0)
+            }
+            .padding(.horizontal, 16)
+            .frame(maxWidth: .infinity)
+            .frame(height: 72)
+            .background(
+                RoundedRectangle(cornerRadius: 20, style: .continuous)
+                    .fill(Color.white)
+            )
+            .overlay(
+                RoundedRectangle(cornerRadius: 20, style: .continuous)
+                    .stroke(PreviewTheme.border, lineWidth: 1)
+            )
+            .shadow(color: accent.opacity(0.08), radius: 12, x: 0, y: 6)
+        }
+        .buttonStyle(.plain)
     }
 
     var mainActionButton: some View {

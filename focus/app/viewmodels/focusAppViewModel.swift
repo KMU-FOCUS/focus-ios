@@ -29,6 +29,8 @@ final class FocusAppViewModel: ObservableObject {
     @Published var cameraFacing: CameraFacing = .front
     @Published var privacyMode: PrivacyMenuMode = .avatar
     @Published var completedStreamReport: PostStreamAnalysisReport?
+    @Published var archivedStreamReports: [PostStreamAnalysisReport] = []
+    @Published var isReportArchivePresented: Bool = false
 
     let cameraManager = CameraSessionManager()
 
@@ -38,7 +40,18 @@ final class FocusAppViewModel: ObservableObject {
     let fileCoordinator = SessionFileCoordinator()
     let ownerStore = OwnerEmbeddingStore()
     private let ownerClassifier = OwnerOtherClassifier()
-    lazy var metadataRepository = JSONMetadataRepository(fileCoordinator: fileCoordinator)
+    lazy var sessionAPIClient: SessionAPIClient? = {
+        guard FocusConstants.enableRemoteSessionLifecycle,
+              let baseURL = URL(string: FocusConstants.serverBaseURLString) else {
+            return nil
+        }
+
+        return SessionAPIClient(baseURL: baseURL)
+    }()
+    lazy var metadataRepository: MetadataFrameWriting = {
+        let localRepository = JSONMetadataRepository(fileCoordinator: fileCoordinator)
+        return MultiplexMetadataRepository(localRepository: localRepository)
+    }()
     let syncMonitor = AudioVideoSyncMonitor()
     let imagePreprocessor = ImagePreprocessor.shared
     let photoLibraryVideoSaver = PhotoLibraryVideoSaver()
@@ -159,24 +172,26 @@ final class FocusAppViewModel: ObservableObject {
             return
         }
 
-        let newSessionID = UUID().uuidString
-        resetDebugState()
-        lastRecordingURL = nil
-        lastMetadataURL = nil
+        Task { @MainActor in
+            let newSessionID = await self.resolveSessionIDForStart()
+            self.resetDebugState()
+            self.lastRecordingURL = nil
+            self.lastMetadataURL = nil
 
-        do {
-            try pipelineController.start(sessionID: newSessionID)
-        } catch {
-            handleError(error.localizedDescription)
-            return
+            do {
+                try pipelineController.start(sessionID: newSessionID)
+            } catch {
+                self.handleError(error.localizedDescription)
+                return
+            }
+
+            self.isRunning = true
+            self.isRecording = true
+            self.metadataConnected = true
+            self.sessionID = newSessionID
+
+            self.startPreviewIfPossible()
         }
-
-        isRunning = true
-        isRecording = true
-        metadataConnected = true
-        sessionID = newSessionID
-
-        startPreviewIfPossible()
     }
 
     func stopSession() {

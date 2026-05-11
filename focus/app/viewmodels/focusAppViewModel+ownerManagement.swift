@@ -60,6 +60,14 @@ extension FocusAppViewModel {
         }
     }
 
+    func showReportArchivePlaceholder() {
+        showStatus("방송 회고록 기능은 준비 중입니다.")
+    }
+
+    func saveOriginalClipPlaceholder() {
+        showStatus("원본클립 저장 기능은 준비 중입니다.")
+    }
+
     func showStatus(_ message: String) {
         statusDismissTask?.cancel()
         transientStatusMessage = message

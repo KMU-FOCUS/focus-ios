@@ -136,6 +136,7 @@ extension FocusAppViewModel {
             pipeline.onSessionFinished = { [weak self] (outputs: PipelineSessionOutputs) in
                 guard let self else { return }
                 Task { @MainActor in
+                    let finishedSessionID = self.sessionID
                     self.isRecording = false
                     self.metadataConnected = false
                     self.sessionID = nil
@@ -146,7 +147,11 @@ extension FocusAppViewModel {
                         await self.saveRecordingToPhotoLibrary(recordingURL)
                     }
 
-                    await self.presentDummyPostStreamReport(from: outputs)
+                    if let finishedSessionID {
+                        await self.closeRemoteSessionIfNeeded(sessionID: finishedSessionID)
+                    }
+
+                    await self.presentPostStreamReport(from: outputs)
                 }
             }
 

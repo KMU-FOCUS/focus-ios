@@ -635,6 +635,175 @@ struct PostStreamReportDetailView: View {
     }
 }
 
+struct PostStreamReportArchiveView: View {
+    let reports: [PostStreamAnalysisReport]
+    let onClose: () -> Void
+
+    var body: some View {
+        ScrollView(.vertical, showsIndicators: false) {
+            VStack(alignment: .leading, spacing: 18) {
+                archiveHeader
+
+                if reports.isEmpty {
+                    emptyArchiveState
+                } else {
+                    VStack(spacing: 14) {
+                        ForEach(reports) { report in
+                            NavigationLink {
+                                PostStreamReportDetailView(
+                                    report: report,
+                                    onClose: onClose
+                                )
+                            } label: {
+                                archiveReportCard(report)
+                            }
+                            .buttonStyle(.plain)
+                        }
+                    }
+                }
+            }
+            .padding(.horizontal, 22)
+            .padding(.top, 18)
+            .padding(.bottom, 28)
+        }
+        .background(ReportTheme.canvas.ignoresSafeArea())
+        .navigationTitle("")
+        .navigationBarTitleDisplayMode(.inline)
+        .toolbar(.hidden, for: .navigationBar)
+    }
+
+    var archiveHeader: some View {
+        HStack(alignment: .top, spacing: 12) {
+            VStack(alignment: .leading, spacing: 8) {
+                Text("방송 회고록")
+                    .font(.system(size: 28, weight: .bold, design: .rounded))
+                    .foregroundStyle(ReportTheme.text)
+
+                Text("날짜별로 저장된 방송 리포트를 확인하고, 자세한 회고 화면으로 이어서 볼 수 있습니다.")
+                    .font(.system(size: 14, weight: .medium, design: .rounded))
+                    .foregroundStyle(ReportTheme.text.opacity(0.58))
+                    .lineSpacing(4)
+            }
+
+            Spacer(minLength: 12)
+
+            Button(action: onClose) {
+                Image(systemName: "xmark")
+                    .font(.system(size: 14, weight: .bold))
+                    .foregroundStyle(ReportTheme.text)
+                    .frame(width: 34, height: 34)
+                    .background(
+                        Circle()
+                            .fill(.white)
+                    )
+                    .overlay(
+                        Circle()
+                            .stroke(ReportTheme.border, lineWidth: 1)
+                    )
+            }
+            .buttonStyle(.plain)
+        }
+    }
+
+    var emptyArchiveState: some View {
+        VStack(alignment: .leading, spacing: 10) {
+            Text("아직 저장된 방송 회고록이 없습니다.")
+                .font(.system(size: 16, weight: .bold, design: .rounded))
+                .foregroundStyle(ReportTheme.text)
+
+            Text("방송 종료 후 리포트가 생성되면 이 화면에서 날짜별로 확인할 수 있어요.")
+                .font(.system(size: 14, weight: .medium, design: .rounded))
+                .foregroundStyle(ReportTheme.text.opacity(0.66))
+                .lineSpacing(4)
+        }
+        .padding(20)
+        .frame(maxWidth: .infinity, alignment: .leading)
+        .background(
+            RoundedRectangle(cornerRadius: 24, style: .continuous)
+                .fill(.white)
+        )
+        .overlay(
+            RoundedRectangle(cornerRadius: 24, style: .continuous)
+                .stroke(ReportTheme.border, lineWidth: 1)
+        )
+    }
+
+    func archiveReportCard(_ report: PostStreamAnalysisReport) -> some View {
+        VStack(alignment: .leading, spacing: 14) {
+            HStack(alignment: .top, spacing: 12) {
+                VStack(alignment: .leading, spacing: 4) {
+                    Text(report.generatedAt.archiveDateLabel)
+                        .font(.system(size: 12, weight: .bold, design: .rounded))
+                        .foregroundStyle(ReportTheme.primary)
+
+                    Text(report.generatedAt.archiveDayLabel)
+                        .font(.system(size: 20, weight: .bold, design: .rounded))
+                        .foregroundStyle(ReportTheme.text)
+                }
+                .padding(.horizontal, 14)
+                .padding(.vertical, 12)
+                .background(
+                    RoundedRectangle(cornerRadius: 18, style: .continuous)
+                        .fill(ReportTheme.primary.opacity(0.08))
+                )
+
+                VStack(alignment: .leading, spacing: 8) {
+                    HStack(alignment: .top) {
+                        VStack(alignment: .leading, spacing: 6) {
+                            Text(report.title)
+                                .font(.system(size: 18, weight: .bold, design: .rounded))
+                                .foregroundStyle(ReportTheme.text)
+
+                            Text(report.summary)
+                                .font(.system(size: 14, weight: .medium, design: .rounded))
+                                .foregroundStyle(ReportTheme.text.opacity(0.72))
+                                .lineLimit(3)
+                                .multilineTextAlignment(.leading)
+                        }
+
+                        Spacer(minLength: 12)
+
+                        statusBadge(report.analysisStatus)
+                    }
+
+                    HStack(spacing: 10) {
+                        archiveMetaChip(icon: "clock.fill", text: report.durationSec.durationLabel)
+                        archiveMetaChip(icon: "shield.lefthalf.filled", text: "보호 \(report.totalReplacedFaceCount)")
+                        archiveMetaChip(icon: "sparkles.tv", text: "하이라이트 \(report.highlightCount)")
+                    }
+                }
+            }
+        }
+        .padding(18)
+        .frame(maxWidth: .infinity, alignment: .leading)
+        .background(
+            RoundedRectangle(cornerRadius: 24, style: .continuous)
+                .fill(.white)
+        )
+        .overlay(
+            RoundedRectangle(cornerRadius: 24, style: .continuous)
+                .stroke(ReportTheme.border, lineWidth: 1)
+        )
+        .shadow(color: ReportTheme.primary.opacity(0.06), radius: 14, x: 0, y: 8)
+    }
+
+    func archiveMetaChip(icon: String, text: String) -> some View {
+        HStack(spacing: 6) {
+            Image(systemName: icon)
+                .font(.system(size: 11, weight: .bold))
+            Text(text)
+                .font(.system(size: 12, weight: .bold, design: .rounded))
+        }
+        .foregroundStyle(ReportTheme.text.opacity(0.72))
+        .padding(.horizontal, 10)
+        .padding(.vertical, 8)
+        .background(
+            Capsule()
+                .fill(ReportTheme.surfaceMuted)
+        )
+    }
+}
+
 private func statusBadge(_ status: PostStreamAnalysisStatus) -> some View {
     Text(status.title)
         .font(.system(size: 12, weight: .bold, design: .rounded))
@@ -701,6 +870,20 @@ private extension Date {
         let formatter = DateFormatter()
         formatter.locale = Locale(identifier: "ko_KR")
         formatter.dateFormat = "yyyy.MM.dd HH:mm 생성"
+        return formatter.string(from: self)
+    }
+
+    var archiveDateLabel: String {
+        let formatter = DateFormatter()
+        formatter.locale = Locale(identifier: "ko_KR")
+        formatter.dateFormat = "yyyy.MM.dd"
+        return formatter.string(from: self)
+    }
+
+    var archiveDayLabel: String {
+        let formatter = DateFormatter()
+        formatter.locale = Locale(identifier: "ko_KR")
+        formatter.dateFormat = "EEEE"
         return formatter.string(from: self)
     }
 }

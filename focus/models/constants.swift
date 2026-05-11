@@ -9,6 +9,13 @@ import Foundation
 import CoreGraphics
 
 enum FocusConstants {
+    static let enableRemoteSessionLifecycle = false
+    static let enableRemoteMetadataStream = false
+    static let serverBaseURLString = "http://127.0.0.1:8080/"
+    static let metadataGRPCHost = "127.0.0.1"
+    static let metadataGRPCPort = 50051
+    static let metadataGRPCUseTLS = false
+
     static let yunetShortSide: CGFloat = 360
     static let yunetScoreThreshold: Float = 0.5
     static let yunetNmsThreshold: Float = 0.3
