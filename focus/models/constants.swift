@@ -52,11 +52,12 @@ enum FocusConstants {
     static let soleOwnerLockTransferMaxCost: Float = 0.45
     static let previewAnalysisStride: Int = 1
     static let previewOverlayMaxMissedFrames: Int = 3
+    static let recordingMaskMaxMissedFrames: Int = 0
     static let previewBoxInterpolationFactor: CGFloat = 0.36
     static let previewOwnerLatchMemoryFrames: Int = 60
 
     static let maxSimultaneousMaskFaces = 8
-    static let mosaicBlockSize: Int = 16
+    static let mosaicBlockSize: Int = 70
     static let privacyMaskHorizontalBiasRatio: CGFloat = -0.08
 
     static let ptsScaleMicroseconds: Double = 1_000_000.0

@@ -123,8 +123,13 @@ private extension DesignSystemTestView {
 
     func previewFaceOverlayLayer(previewSize: CGSize) -> some View {
         let overlays = viewModel.previewFaceOverlays(for: previewSize)
+        let debugOverlays = viewModel.previewDebugOverlays(for: previewSize)
 
         return ZStack {
+            ForEach(debugOverlays) { overlay in
+                debugPreviewOverlayView(overlay)
+            }
+
             ForEach(overlays) { overlay in
                 Rectangle()
                     .stroke(overlayStrokeColor(for: overlay.label), lineWidth: 5)
@@ -137,6 +142,35 @@ private extension DesignSystemTestView {
             }
         }
         .allowsHitTesting(false)
+    }
+
+    @ViewBuilder
+    func debugPreviewOverlayView(_ overlay: PreviewDebugOverlay) -> some View {
+        let tint = debugOverlayColor(for: overlay.kind)
+
+        ZStack(alignment: .topLeading) {
+            Rectangle()
+                .strokeBorder(
+                    tint,
+                    style: StrokeStyle(
+                        lineWidth: overlay.kind == .mask ? 2.5 : 2,
+                        dash: overlay.kind == .tracker ? [] : [8, 6]
+                    )
+                )
+                .frame(width: overlay.rect.width, height: overlay.rect.height)
+
+            Text(overlay.title)
+                .font(.system(size: 10, weight: .bold, design: .rounded))
+                .foregroundStyle(.white)
+                .padding(.horizontal, 6)
+                .padding(.vertical, 4)
+                .background(
+                    Capsule(style: .continuous)
+                        .fill(tint.opacity(0.92))
+                )
+                .offset(x: 4, y: -18)
+        }
+        .position(x: overlay.rect.midX, y: overlay.rect.midY)
     }
 
     var cameraDimLayer: some View {
@@ -424,6 +458,16 @@ private extension DesignSystemTestView {
                 .foregroundStyle(PreviewTheme.text.opacity(0.68))
 
             VStack(spacing: 10) {
+                menuToggleButton(
+                    icon: "viewfinder.rectangular",
+                    title: "디버그 오버레이",
+                    subtitle: viewModel.isDebugVisionOverlayEnabled ? "Detector / Tracker / Mask 표시 중" : "디버그 표시 끔",
+                    accent: Color.orange,
+                    isOn: viewModel.isDebugVisionOverlayEnabled
+                ) {
+                    viewModel.isDebugVisionOverlayEnabled.toggle()
+                }
+
                 menuWideActionButton(
                     icon: "book.pages.fill",
                     title: "방송 회고록 보기",
@@ -475,6 +519,57 @@ private extension DesignSystemTestView {
                 }
 
                 Spacer(minLength: 0)
+            }
+            .padding(.horizontal, 16)
+            .frame(maxWidth: .infinity)
+            .frame(height: 72)
+            .background(
+                RoundedRectangle(cornerRadius: 20, style: .continuous)
+                    .fill(Color.white)
+            )
+            .overlay(
+                RoundedRectangle(cornerRadius: 20, style: .continuous)
+                    .stroke(PreviewTheme.border, lineWidth: 1)
+            )
+            .shadow(color: accent.opacity(0.08), radius: 12, x: 0, y: 6)
+        }
+        .buttonStyle(.plain)
+    }
+
+    func menuToggleButton(
+        icon: String,
+        title: String,
+        subtitle: String,
+        accent: Color,
+        isOn: Bool,
+        action: @escaping () -> Void
+    ) -> some View {
+        Button(action: action) {
+            HStack(spacing: 14) {
+                Image(systemName: icon)
+                    .font(.system(size: 16, weight: .bold))
+                    .foregroundStyle(accent)
+                    .frame(width: 40, height: 40)
+                    .background(
+                        Circle()
+                            .fill(accent.opacity(0.10))
+                    )
+
+                VStack(alignment: .leading, spacing: 4) {
+                    Text(title)
+                        .font(.system(size: 16, weight: .bold, design: .rounded))
+                        .foregroundStyle(PreviewTheme.text)
+
+                    Text(subtitle)
+                        .font(.system(size: 12, weight: .medium, design: .rounded))
+                        .foregroundStyle(PreviewTheme.text.opacity(0.56))
+                }
+
+                Spacer(minLength: 0)
+
+                Image(systemName: isOn ? "checkmark.circle.fill" : "circle")
+                    .font(.system(size: 20, weight: .semibold))
+                    .foregroundStyle(isOn ? accent : PreviewTheme.text.opacity(0.28))
             }
             .padding(.horizontal, 16)
             .frame(maxWidth: .infinity)
@@ -620,6 +715,17 @@ private extension DesignSystemTestView {
             return Color(red: 0.18, green: 0.84, blue: 0.42)
         case .other, .pending:
             return Color(red: 0.96, green: 0.24, blue: 0.22)
+        }
+    }
+
+    func debugOverlayColor(for kind: PreviewDebugOverlayKind) -> Color {
+        switch kind {
+        case .detector:
+            return .yellow
+        case .tracker:
+            return .cyan
+        case .mask:
+            return .pink
         }
     }
 

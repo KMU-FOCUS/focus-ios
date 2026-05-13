@@ -96,3 +96,107 @@ enum TrackCost {
         )
     }
 }
+
+enum DuplicateFaceFilter {
+    static func dedupeDetections(_ detections: [DetectedFace]) -> [DetectedFace] {
+        dedupe(items: detections, areDuplicates: { lhs, rhs in
+            areLikelyDuplicateRects(lhs.bbox, rhs.bbox)
+        }, isPreferred: { lhs, rhs in
+            if lhs.confidence != rhs.confidence {
+                return lhs.confidence > rhs.confidence
+            }
+            return lhs.bbox.width * lhs.bbox.height >= rhs.bbox.width * rhs.bbox.height
+        })
+    }
+
+    static func dedupeTracks(_ tracks: [TrackedFace]) -> [TrackedFace] {
+        dedupe(items: tracks, areDuplicates: { lhs, rhs in
+            areLikelyDuplicateRects(lhs.bbox, rhs.bbox)
+        }, isPreferred: { lhs, rhs in
+            let lhsLabelPriority = trackLabelPriority(lhs.label)
+            let rhsLabelPriority = trackLabelPriority(rhs.label)
+            if lhsLabelPriority != rhsLabelPriority {
+                return lhsLabelPriority > rhsLabelPriority
+            }
+
+            if lhs.ownerID != nil || rhs.ownerID != nil, lhs.ownerID != rhs.ownerID {
+                return lhs.ownerID != nil
+            }
+
+            if lhs.missedFrames != rhs.missedFrames {
+                return lhs.missedFrames < rhs.missedFrames
+            }
+
+            if lhs.framesSeen != rhs.framesSeen {
+                return lhs.framesSeen > rhs.framesSeen
+            }
+
+            if lhs.age != rhs.age {
+                return lhs.age > rhs.age
+            }
+
+            let lhsArea = lhs.bbox.width * lhs.bbox.height
+            let rhsArea = rhs.bbox.width * rhs.bbox.height
+            if lhsArea != rhsArea {
+                return lhsArea > rhsArea
+            }
+
+            return lhs.trackID < rhs.trackID
+        })
+    }
+
+    private static func dedupe<T>(
+        items: [T],
+        areDuplicates: (T, T) -> Bool,
+        isPreferred: (T, T) -> Bool
+    ) -> [T] {
+        guard items.count > 1 else { return items }
+
+        var kept: [T] = []
+        for item in items {
+            var shouldAppend = true
+
+            for index in kept.indices {
+                guard areDuplicates(item, kept[index]) else { continue }
+                if isPreferred(item, kept[index]) {
+                    kept[index] = item
+                }
+                shouldAppend = false
+                break
+            }
+
+            if shouldAppend {
+                kept.append(item)
+            }
+        }
+
+        return kept
+    }
+
+    private static func areLikelyDuplicateRects(_ lhs: CGRect, _ rhs: CGRect) -> Bool {
+        let iou = CGFloat(TrackCost.intersectionOverUnion(lhs, rhs))
+        if iou >= 0.55 {
+            return true
+        }
+
+        let lhsCenter = CGPoint(x: lhs.midX, y: lhs.midY)
+        let rhsCenter = CGPoint(x: rhs.midX, y: rhs.midY)
+        let dx = lhsCenter.x - rhsCenter.x
+        let dy = lhsCenter.y - rhsCenter.y
+        let centerDistance = sqrt(dx * dx + dy * dy)
+        let minSide = max(1, min(lhs.width, lhs.height, rhs.width, rhs.height))
+
+        return iou >= 0.35 && centerDistance <= minSide * 0.28
+    }
+
+    private static func trackLabelPriority(_ label: TrackLabel) -> Int {
+        switch label {
+        case .owner:
+            return 2
+        case .other:
+            return 1
+        case .pending:
+            return 0
+        }
+    }
+}

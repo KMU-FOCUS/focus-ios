@@ -9,10 +9,10 @@ import Foundation
 
 extension FocusAppViewModel {
     func activePreviewTracks() -> [TrackedFace] {
-        previewTrackedFaces.filter { $0.missedFrames == 0 }
+        previewTrackedFaces.filter { $0.missedFrames <= FocusConstants.previewOverlayMaxMissedFrames }
     }
 
     func overlayPreviewTracks() -> [TrackedFace] {
-        activePreviewTracks()
+        DuplicateFaceFilter.dedupeTracks(activePreviewTracks())
     }
 }

@@ -19,8 +19,11 @@ final class FocusAppViewModel: ObservableObject {
     @Published var lastMetadataURL: URL?
     @Published var ownerProfiles: [OwnerProfileSummary] = []
     @Published var previewTrackedFaces: [TrackedFace] = []
+    @Published var previewDetectedFaces: [DetectedFace] = []
+    @Published var previewMaskTracks: [TrackedFace] = []
     @Published var previewSourceSize: CGSize = .zero
     @Published var transientStatusMessage: String?
+    @Published var isDebugVisionOverlayEnabled: Bool = true
 
     @Published var isCameraReady: Bool = false
     @Published var isCameraRunning: Bool = false
@@ -208,7 +211,7 @@ final class FocusAppViewModel: ObservableObject {
     }
 
     func handlePreviewTap(at location: CGPoint, previewSize: CGSize) {
-        let visibleTracks = activePreviewTracks()
+        let visibleTracks = overlayPreviewTracks()
         let selectedTrack = previewTrackContainingPoint(
             to: location,
             previewSize: previewSize,

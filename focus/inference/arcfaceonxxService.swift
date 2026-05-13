@@ -55,25 +55,6 @@ final class ArcFaceONNXService: ArcFaceEmbeddingExtracting {
 
             self.inputName = resolvedInputName
             self.outputName = resolvedOutputName
-
-            if resolvedInputName != inputName {
-                FocusLogger.warning(
-                    "ArcFace input 이름 '\(inputName)'을 찾지 못해 '\(resolvedInputName)'을 사용합니다. available=\(availableInputNames)",
-                    category: .inference
-                )
-            }
-
-            if resolvedOutputName != outputName {
-                FocusLogger.warning(
-                    "ArcFace output 이름 '\(outputName)'을 찾지 못해 '\(resolvedOutputName)'을 사용합니다. available=\(availableOutputNames)",
-                    category: .inference
-                )
-            }
-
-            FocusLogger.info(
-                "ArcFace model IO resolved: input=\(resolvedInputName), output=\(resolvedOutputName)",
-                category: .inference
-            )
         } catch {
             throw InferenceError.sessionInitializationFailed(error.localizedDescription)
         }

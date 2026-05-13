@@ -49,7 +49,9 @@ final class FocusFrameProcessor {
         lock.lock()
         defer { lock.unlock() }
 
-        let detections = try detector.detectFaces(from: pixelBuffer)
+        let rawDetections = try detector.detectFaces(from: pixelBuffer)
+        let dedupedDetections = DuplicateFaceFilter.dedupeDetections(rawDetections)
+        let detections = dedupedDetections
             .filter { $0.confidence >= FocusConstants.yunetConfidenceThreshold }
 
         let tdmmList: [TDMMCoefficients?]

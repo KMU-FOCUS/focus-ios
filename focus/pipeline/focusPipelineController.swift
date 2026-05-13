@@ -31,7 +31,7 @@ final class FocusPipelineController {
     private(set) var state: PipelineState = .idle
     var shouldMaskRecordingFaces = true
 
-    var onPreviewFrame: ((CVPixelBuffer, [TrackedFace]) -> Void)?
+    var onPreviewFrame: ((CVPixelBuffer, [TrackedFace], [DetectedFace], [TrackedFace]) -> Void)?
     var onDebugSnapshot: ((PipelineDebugSnapshot) -> Void)?
     var onStateChanged: ((PipelineState) -> Void)?
     var onSessionFinished: ((PipelineSessionOutputs) -> Void)?
@@ -346,7 +346,18 @@ final class FocusPipelineController {
                 pixelBuffer: context.pixelBuffer
             )
             applySoleOwnerExclusionIfNeeded(&trackedFaces)
-            tracker.mergeAnnotations(from: trackedFaces)
+            tracker.replaceTracks(with: trackedFaces)
+            let presentationTracks = DuplicateFaceFilter.dedupeTracks(
+                trackedFaces.filter { $0.missedFrames <= FocusConstants.previewOverlayMaxMissedFrames }
+            )
+            let recordingMaskTracks = DuplicateFaceFilter.dedupeTracks(
+                trackedFaces.filter { $0.missedFrames <= FocusConstants.recordingMaskMaxMissedFrames }
+            ).map { track in
+                guard track.missedFrames > 0 else { return track }
+                var fallbackTrack = track
+                fallbackTrack.landmarks = nil
+                return fallbackTrack
+            }
 
             let metadataFaceCount: Int
             if context.mode == .recording, let sessionID = context.sessionID {
@@ -360,7 +371,12 @@ final class FocusPipelineController {
             }
 
             DispatchQueue.main.async { [weak self] in
-                self?.onPreviewFrame?(context.pixelBuffer, trackedFaces)
+                self?.onPreviewFrame?(
+                    context.pixelBuffer,
+                    presentationTracks,
+                    processedFrame.detections,
+                    recordingMaskTracks
+                )
             }
 
             if context.mode == .recording, let sessionID = context.sessionID {
@@ -370,7 +386,7 @@ final class FocusPipelineController {
                 syncMonitor?.recordVideoPTS(context.pts)
                 appendRecordingFrameIfNeeded(
                     pixelBuffer: context.pixelBuffer,
-                    tracks: trackedFaces,
+                    tracks: recordingMaskTracks,
                     pts: context.pts,
                     sessionID: sessionID
                 )
@@ -512,6 +528,23 @@ final class FocusPipelineController {
         return intersectionArea / unionArea
     }
 
+    private func currentPresentationTracks() -> [TrackedFace] {
+        let visibleTracks = tracker.tracks
+            .filter { $0.missedFrames <= FocusConstants.previewOverlayMaxMissedFrames }
+        return DuplicateFaceFilter.dedupeTracks(visibleTracks)
+    }
+
+    private func currentRecordingMaskTracks() -> [TrackedFace] {
+        let maskTracks = tracker.tracks
+            .filter { $0.missedFrames <= FocusConstants.recordingMaskMaxMissedFrames }
+        return DuplicateFaceFilter.dedupeTracks(maskTracks).map { track in
+            guard track.missedFrames > 0 else { return track }
+            var fallbackTrack = track
+            fallbackTrack.landmarks = nil
+            return fallbackTrack
+        }
+    }
+
     // MARK: - Async Branches
     private func dispatchLabelRefineIfNeeded(trackedFaces: [TrackedFace]) {
         labelRefineQueue.async(group: asyncGroup) {
@@ -546,12 +579,22 @@ final class FocusPipelineController {
             sessionID: sessionID
         )
 
-        if shouldMaskRecordingFaces {
-            maskRenderer?.renderMasks(on: pixelBuffer, tracks: tracks)
+        let recordingPixelBuffer: CVPixelBuffer
+        if let maskRenderer {
+            if shouldMaskRecordingFaces,
+               let maskedPixelBuffer = maskRenderer.makeMaskedPixelBuffer(from: pixelBuffer, tracks: tracks) {
+                recordingPixelBuffer = maskedPixelBuffer
+            } else if let copiedPixelBuffer = maskRenderer.copyPixelBuffer(pixelBuffer) {
+                recordingPixelBuffer = copiedPixelBuffer
+            } else {
+                recordingPixelBuffer = pixelBuffer
+            }
+        } else {
+            recordingPixelBuffer = pixelBuffer
         }
 
         encoderQueue.async {
-            recorder.appendVideoPixelBuffer(pixelBuffer, pts: pts)
+            recorder.appendVideoPixelBuffer(recordingPixelBuffer, pts: pts)
         }
     }
 
@@ -1074,10 +1117,6 @@ final class FocusPipelineController {
                 visibleTrackCount: visibleTrackCount,
                 ownerStore: ownerStore
             ) else {
-                FocusLogger.info(
-                    "owner 업그레이드 건너뜀(track \(track.trackID)): 다중 얼굴이거나 기존 owner와 유사도가 충분하지 않습니다.",
-                    category: .pipeline
-                )
                 return
             }
 

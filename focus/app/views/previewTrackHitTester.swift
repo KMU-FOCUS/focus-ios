@@ -80,37 +80,57 @@ struct PreviewTrackHitTester {
         }
 
         return tracks.compactMap { track in
-            let mappedOrigin = mapPointToPreview(
-                track.bbox.origin,
+            guard let rect = mapRectToPreview(
+                track.bbox,
                 previewSize: previewSize,
                 sourceSize: sourceSize,
                 isMirrored: isMirrored,
                 rotationDegrees: rotationDegrees
-            )
-            let mappedMax = mapPointToPreview(
-                CGPoint(x: track.bbox.maxX, y: track.bbox.maxY),
-                previewSize: previewSize,
-                sourceSize: sourceSize,
-                isMirrored: isMirrored,
-                rotationDegrees: rotationDegrees
-            )
-
-            let rect = CGRect(
-                x: min(mappedOrigin.x, mappedMax.x),
-                y: min(mappedOrigin.y, mappedMax.y),
-                width: abs(mappedMax.x - mappedOrigin.x),
-                height: abs(mappedMax.y - mappedOrigin.y)
-            ).intersection(CGRect(origin: .zero, size: previewSize))
-
-            guard !rect.isNull,
-                  !rect.isEmpty,
-                  rect.width > 0,
-                  rect.height > 0 else {
+            ) else {
                 return nil
             }
 
             return PreviewTrackRect(trackID: track.trackID, rect: rect)
         }
+    }
+
+    func mapRectToPreview(
+        _ rect: CGRect,
+        previewSize: CGSize,
+        sourceSize: CGSize,
+        isMirrored: Bool,
+        rotationDegrees: Int = 270
+    ) -> CGRect? {
+        let mappedOrigin = mapPointToPreview(
+            rect.origin,
+            previewSize: previewSize,
+            sourceSize: sourceSize,
+            isMirrored: isMirrored,
+            rotationDegrees: rotationDegrees
+        )
+        let mappedMax = mapPointToPreview(
+            CGPoint(x: rect.maxX, y: rect.maxY),
+            previewSize: previewSize,
+            sourceSize: sourceSize,
+            isMirrored: isMirrored,
+            rotationDegrees: rotationDegrees
+        )
+
+        let mappedRect = CGRect(
+            x: min(mappedOrigin.x, mappedMax.x),
+            y: min(mappedOrigin.y, mappedMax.y),
+            width: abs(mappedMax.x - mappedOrigin.x),
+            height: abs(mappedMax.y - mappedOrigin.y)
+        ).intersection(CGRect(origin: .zero, size: previewSize))
+
+        guard !mappedRect.isNull,
+              !mappedRect.isEmpty,
+              mappedRect.width > 0,
+              mappedRect.height > 0 else {
+            return nil
+        }
+
+        return mappedRect
     }
 
     private func mapPointToPreview(

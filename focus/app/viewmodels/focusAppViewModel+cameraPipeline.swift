@@ -70,20 +70,10 @@ extension FocusAppViewModel {
                     modelFileExtension: "tflite"
                 )
             } catch {
-                FocusLogger.warning(
-                    "3DMM이 비활성화된 상태로 파이프라인을 구성합니다. TensorFlowLite 연결 상태를 확인해 주세요. \(error.localizedDescription)",
-                    category: .inference
-                )
                 tdmmInferencer = NoOpFacial3DMMService()
             }
 
             let arcFaceExtractor = try? ArcFaceONNXService()
-            if arcFaceExtractor == nil {
-                FocusLogger.warning(
-                    "ArcFace가 비활성화된 상태로 파이프라인을 구성합니다. 모델 파일 또는 ONNX Runtime 연결 상태를 확인해 주세요.",
-                    category: .inference
-                )
-            }
 
             let tracker = previewRuntime.faceTracker
             let stateMachine = previewRuntime.trackStateMachine
@@ -118,14 +108,17 @@ extension FocusAppViewModel {
                 }
             }
 
-            pipeline.onStateChanged = { (newState: PipelineState) in
-                FocusLogger.info("pipeline state: \(newState)", category: .pipeline)
-            }
-
-            pipeline.onPreviewFrame = { [weak self] (pixelBuffer: CVPixelBuffer, trackedFaces: [TrackedFace]) in
+            pipeline.onPreviewFrame = { [weak self] (
+                pixelBuffer: CVPixelBuffer,
+                trackedFaces: [TrackedFace],
+                detectedFaces: [DetectedFace],
+                maskTracks: [TrackedFace]
+            ) in
                 guard let self else { return }
                 Task { @MainActor in
                     self.previewTrackedFaces = self.sanitizedTracksForCurrentOwners(trackedFaces)
+                    self.previewDetectedFaces = detectedFaces
+                    self.previewMaskTracks = maskTracks
                     self.previewSourceSize = CGSize(
                         width: CVPixelBufferGetWidth(pixelBuffer),
                         height: CVPixelBufferGetHeight(pixelBuffer)
@@ -181,6 +174,8 @@ extension FocusAppViewModel {
 
     func clearPreviewTrackingState() {
         previewTrackedFaces.removeAll()
+        previewDetectedFaces.removeAll()
+        previewMaskTracks.removeAll()
         previewSourceSize = .zero
         pipelineController?.resetAnalysisState()
         previewRuntime.reset()
@@ -205,6 +200,80 @@ extension FocusAppViewModel {
             guard let label = labelByTrackID[rect.trackID] else { return nil }
             return PreviewFaceOverlay(trackID: rect.trackID, rect: rect.rect, label: label)
         }
+    }
+
+    func previewDebugOverlays(for previewSize: CGSize) -> [PreviewDebugOverlay] {
+        guard isDebugVisionOverlayEnabled,
+              previewSourceSize.width > 0,
+              previewSourceSize.height > 0 else {
+            return []
+        }
+
+        let isMirrored = cameraFacing == .front
+        var overlays: [PreviewDebugOverlay] = []
+
+        for (index, detectedFace) in previewDetectedFaces.enumerated() {
+            guard let rect = previewRuntime.hitTester.mapRectToPreview(
+                detectedFace.bbox,
+                previewSize: previewSize,
+                sourceSize: previewSourceSize,
+                isMirrored: isMirrored
+            ) else {
+                continue
+            }
+
+            overlays.append(
+                PreviewDebugOverlay(
+                    id: "det-\(index)",
+                    rect: rect,
+                    kind: .detector,
+                    title: String(format: "D %.2f", detectedFace.confidence)
+                )
+            )
+        }
+
+        for track in overlayPreviewTracks() {
+            guard let rect = previewRuntime.hitTester.mapRectToPreview(
+                track.bbox,
+                previewSize: previewSize,
+                sourceSize: previewSourceSize,
+                isMirrored: isMirrored
+            ) else {
+                continue
+            }
+
+            overlays.append(
+                PreviewDebugOverlay(
+                    id: "trk-\(track.trackID)",
+                    rect: rect,
+                    kind: .tracker,
+                    title: "T \(track.trackID)"
+                )
+            )
+        }
+
+        for track in previewMaskTracks {
+            let maskRect = PrivacyMaskRenderer.debugMaskRect(for: track)
+            guard let rect = previewRuntime.hitTester.mapRectToPreview(
+                maskRect,
+                previewSize: previewSize,
+                sourceSize: previewSourceSize,
+                isMirrored: isMirrored
+            ) else {
+                continue
+            }
+
+            overlays.append(
+                PreviewDebugOverlay(
+                    id: "mask-\(track.trackID)",
+                    rect: rect,
+                    kind: .mask,
+                    title: "M \(track.trackID)"
+                )
+            )
+        }
+
+        return overlays
     }
 
 }

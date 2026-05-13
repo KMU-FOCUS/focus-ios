@@ -15,3 +15,16 @@ struct PreviewFaceOverlay: Identifiable, Equatable {
 
     var id: Int { trackID }
 }
+
+enum PreviewDebugOverlayKind: Equatable {
+    case detector
+    case tracker
+    case mask
+}
+
+struct PreviewDebugOverlay: Identifiable, Equatable {
+    let id: String
+    let rect: CGRect
+    let kind: PreviewDebugOverlayKind
+    let title: String
+}
