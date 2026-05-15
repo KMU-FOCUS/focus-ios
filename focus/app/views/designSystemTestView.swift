@@ -62,6 +62,8 @@ struct DesignSystemTestView: View {
             NavigationStack {
                 PostStreamReportSummarySheetView(
                     report: report,
+                    avatarVideoURL: viewModel.lastAvatarVideoURL,
+                    avatarSchemaURL: viewModel.lastAvatarSchemaURL,
                     onClose: { viewModel.dismissCompletedStreamReport() }
                 )
             }

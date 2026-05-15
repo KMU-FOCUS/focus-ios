@@ -135,6 +135,11 @@ extension FocusAppViewModel {
                     self.sessionID = nil
                     self.lastRecordingURL = outputs.recordingURL
                     self.lastMetadataURL = outputs.metadataURL
+                    self.lastAvatarVideoURL = outputs.avatarVideoURL
+                    self.lastAvatarSchemaURL = outputs.avatarSchemaURL
+                    if outputs.avatarVideoURL != nil || outputs.avatarSchemaURL != nil {
+                        self.showStatus("아바타 전달용 가로 영상과 JSON이 저장되었어요.")
+                    }
 
                     if let recordingURL = outputs.recordingURL {
                         await self.saveRecordingToPhotoLibrary(recordingURL)
@@ -189,7 +194,7 @@ extension FocusAppViewModel {
             tracks: visibleTracks,
             previewSize: previewSize,
             sourceSize: previewSourceSize,
-            isMirrored: cameraFacing == .front
+            isMirrored: false
         )
 
         let labelByTrackID: [Int: TrackLabel] = Dictionary(
@@ -209,7 +214,7 @@ extension FocusAppViewModel {
             return []
         }
 
-        let isMirrored = cameraFacing == .front
+        let isMirrored = false
         var overlays: [PreviewDebugOverlay] = []
 
         for (index, detectedFace) in previewDetectedFaces.enumerated() {

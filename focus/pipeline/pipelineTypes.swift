@@ -67,4 +67,6 @@ struct PipelineDebugSnapshot: Sendable {
 struct PipelineSessionOutputs: Sendable {
     let recordingURL: URL?
     let metadataURL: URL?
+    let avatarVideoURL: URL?
+    let avatarSchemaURL: URL?
 }

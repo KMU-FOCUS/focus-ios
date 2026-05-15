@@ -40,6 +40,26 @@ final class SessionFileCoordinator {
         }
     }
 
+    func makeAvatarSchemaOutputURL(sessionID: String) throws -> URL {
+        let baseDirectory = try ensureDirectory(
+            documentsDirectory()
+                .appendingPathComponent("Focus", isDirectory: true)
+                .appendingPathComponent("AvatarDebug", isDirectory: true)
+        )
+
+        return baseDirectory.appendingPathComponent("focus_\(sessionID)_avatar_schema.json")
+    }
+
+    func makeAvatarVideoOutputURL(sessionID: String) throws -> URL {
+        let baseDirectory = try ensureDirectory(
+            documentsDirectory()
+                .appendingPathComponent("Focus", isDirectory: true)
+                .appendingPathComponent("AvatarDebug", isDirectory: true)
+        )
+
+        return baseDirectory.appendingPathComponent("focus_\(sessionID)_avatar_delivery.mp4")
+    }
+
     func ownerSnapshotsDirectory() throws -> URL {
         let cacheDirectory = preferredURL(for: .cachesDirectory) ?? documentsDirectory()
         return try ensureDirectory(cacheDirectory.appendingPathComponent("owner_snapshots", isDirectory: true))

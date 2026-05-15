@@ -642,17 +642,68 @@ final class FocusPipelineController {
         }
 
         let recordingURL: URL?
+        let finishedSessionID: String?
         lock.lock()
         recordingURL = activeRecordingURL
+        finishedSessionID = sessionID
         lock.unlock()
 
+        let finalizeOutputs: () -> Void = { [weak self] in
+            guard let self else { return }
+
+            Task {
+                let avatarArtifacts = await self.exportAvatarArtifactsIfPossible(
+                    sessionID: finishedSessionID,
+                    recordingURL: recordingURL,
+                    metadataURL: metadataURL
+                )
+
+                completion(
+                    PipelineSessionOutputs(
+                        recordingURL: recordingURL,
+                        metadataURL: metadataURL,
+                        avatarVideoURL: avatarArtifacts?.videoURL,
+                        avatarSchemaURL: avatarArtifacts?.schemaURL
+                    )
+                )
+            }
+        }
+
         guard let recorder else {
-            completion(PipelineSessionOutputs(recordingURL: recordingURL, metadataURL: metadataURL))
+            finalizeOutputs()
             return
         }
 
         recorder.finishWriting {
-            completion(PipelineSessionOutputs(recordingURL: recordingURL, metadataURL: metadataURL))
+            finalizeOutputs()
+        }
+    }
+
+    private func exportAvatarArtifactsIfPossible(
+        sessionID: String?,
+        recordingURL: URL?,
+        metadataURL: URL?
+    ) async -> AvatarDeliveryArtifacts? {
+        guard let sessionID,
+              let recordingURL,
+              let metadataURL,
+              let sessionFileCoordinator else {
+            return nil
+        }
+
+        do {
+            let exporter = AvatarDebugSchemaExporter(fileCoordinator: sessionFileCoordinator)
+            return try await exporter.export(
+                sessionID: sessionID,
+                recordingURL: recordingURL,
+                metadataURL: metadataURL
+            )
+        } catch {
+            FocusLogger.error(
+                "avatar schema 저장 실패: \(error.localizedDescription)",
+                category: .metadata
+            )
+            return nil
         }
     }
 

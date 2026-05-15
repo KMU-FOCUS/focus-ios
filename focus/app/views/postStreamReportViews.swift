@@ -9,7 +9,11 @@ import SwiftUI
 
 struct PostStreamReportSummarySheetView: View {
     let report: PostStreamAnalysisReport
+    let avatarVideoURL: URL?
+    let avatarSchemaURL: URL?
     let onClose: () -> Void
+
+    @State private var isShareSheetPresented = false
 
     var body: some View {
         ScrollView(.vertical, showsIndicators: false) {
@@ -22,6 +26,12 @@ struct PostStreamReportSummarySheetView: View {
                 bulletSection("아쉬운 점", items: report.weaknesses, accent: ReportTheme.warning)
                 bulletSection("다음 방송 팁", items: report.actionItems, accent: ReportTheme.primary)
                 statsRow
+                if avatarVideoURL != nil || avatarSchemaURL != nil {
+                    avatarDeliverySection(
+                        videoURL: avatarVideoURL,
+                        schemaURL: avatarSchemaURL
+                    )
+                }
 
                 NavigationLink {
                     PostStreamReportDetailView(
@@ -70,6 +80,12 @@ struct PostStreamReportSummarySheetView: View {
         }
         .background(ReportTheme.canvas.ignoresSafeArea())
         .toolbar(.hidden, for: .navigationBar)
+        .sheet(isPresented: $isShareSheetPresented) {
+            let shareItems = [avatarVideoURL, avatarSchemaURL].compactMap { $0 }
+            if !shareItems.isEmpty {
+                FileShareSheet(items: shareItems)
+            }
+        }
     }
 
     var capsuleHandle: some View {
@@ -189,6 +205,64 @@ struct PostStreamReportSummarySheetView: View {
                 subtitle: "추천 구간"
             )
         }
+    }
+
+    func avatarDeliverySection(videoURL: URL?, schemaURL: URL?) -> some View {
+        VStack(alignment: .leading, spacing: 12) {
+            Text("아바타 전달 파일")
+                .font(.system(size: 15, weight: .bold, design: .rounded))
+                .foregroundStyle(ReportTheme.text)
+
+            VStack(alignment: .leading, spacing: 8) {
+                Text("방송 종료 후 가로 전달용 영상과 bbox·영상 메타정보 JSON이 같이 생성되었습니다.")
+                    .font(.system(size: 14, weight: .medium, design: .rounded))
+                    .foregroundStyle(ReportTheme.text.opacity(0.72))
+                    .lineSpacing(3)
+
+                if let videoURL {
+                    Text(videoURL.lastPathComponent)
+                        .font(.system(size: 13, weight: .semibold, design: .rounded))
+                        .foregroundStyle(ReportTheme.primary)
+                        .textSelection(.enabled)
+                }
+
+                if let schemaURL {
+                    Text(schemaURL.lastPathComponent)
+                        .font(.system(size: 13, weight: .semibold, design: .rounded))
+                        .foregroundStyle(ReportTheme.primary)
+                        .textSelection(.enabled)
+                }
+
+                Button {
+                    isShareSheetPresented = true
+                } label: {
+                    HStack(spacing: 8) {
+                        Image(systemName: "square.and.arrow.up")
+                            .font(.system(size: 14, weight: .bold))
+
+                        Text("전달 파일 공유하기")
+                            .font(.system(size: 14, weight: .bold, design: .rounded))
+                    }
+                    .foregroundStyle(.white)
+                    .padding(.horizontal, 14)
+                    .frame(height: 42)
+                    .background(
+                        RoundedRectangle(cornerRadius: 14, style: .continuous)
+                            .fill(ReportTheme.primary)
+                    )
+                }
+                .buttonStyle(.plain)
+            }
+        }
+        .padding(18)
+        .background(
+            RoundedRectangle(cornerRadius: 22, style: .continuous)
+                .fill(.white)
+        )
+        .overlay(
+            RoundedRectangle(cornerRadius: 22, style: .continuous)
+                .stroke(ReportTheme.border, lineWidth: 1)
+        )
     }
 
     func reportInfoCard(icon: String, title: String, value: String) -> some View {

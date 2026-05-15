@@ -17,6 +17,8 @@ final class FocusAppViewModel: ObservableObject {
     @Published var isRecording: Bool = false
     @Published var lastRecordingURL: URL?
     @Published var lastMetadataURL: URL?
+    @Published var lastAvatarVideoURL: URL?
+    @Published var lastAvatarSchemaURL: URL?
     @Published var ownerProfiles: [OwnerProfileSummary] = []
     @Published var previewTrackedFaces: [TrackedFace] = []
     @Published var previewDetectedFaces: [DetectedFace] = []
@@ -180,6 +182,8 @@ final class FocusAppViewModel: ObservableObject {
             self.resetDebugState()
             self.lastRecordingURL = nil
             self.lastMetadataURL = nil
+            self.lastAvatarVideoURL = nil
+            self.lastAvatarSchemaURL = nil
 
             do {
                 try pipelineController.start(sessionID: newSessionID)

@@ -98,10 +98,10 @@ final class PrivacyMaskRenderer {
     }
 
     private static func expandedFaceRect(from rect: CGRect) -> CGRect {
-        let expandLeft = rect.width * 0.04
-        let expandRight = rect.width * 0.04
-        let expandTop = rect.height * 0.08
-        let expandBottom = rect.height * 0.05
+        let expandLeft = rect.width * 0.025
+        let expandRight = rect.width * 0.025
+        let expandTop = rect.height * 0.015
+        let expandBottom = rect.height * 0.035
 
         return CGRect(
             x: rect.origin.x - expandLeft,
