@@ -60,3 +60,59 @@ struct PostStreamAnalysisReport: Identifiable, Equatable, Sendable {
     let generatedAt: Date
     let recordingURL: URL?
 }
+
+extension PostStreamAnalysisReport {
+    func updatingBroadcastContext(
+        broadcastID: String? = nil,
+        analysisJobID: String? = nil,
+        analysisStatus: PostStreamAnalysisStatus? = nil
+    ) -> PostStreamAnalysisReport {
+        PostStreamAnalysisReport(
+            id: analysisJobID ?? id,
+            title: title,
+            broadcastID: broadcastID ?? self.broadcastID,
+            analysisJobID: analysisJobID ?? self.analysisJobID,
+            durationSec: durationSec,
+            analysisStatus: analysisStatus ?? self.analysisStatus,
+            summary: summary,
+            strengths: strengths,
+            weaknesses: weaknesses,
+            actionItems: actionItems,
+            totalReplacedFaceCount: totalReplacedFaceCount,
+            maxSimultaneousCrowdCount: maxSimultaneousCrowdCount,
+            highlightCount: highlightCount,
+            peakViewerCount: peakViewerCount,
+            peakOccurredAtLabel: peakOccurredAtLabel,
+            peakSceneDescription: peakSceneDescription,
+            contentRatios: contentRatios,
+            highlightMoments: highlightMoments,
+            generatedAt: generatedAt,
+            recordingURL: recordingURL
+        )
+    }
+
+    func updatingHighlightMoments(_ highlightMoments: [PostStreamHighlightMoment]) -> PostStreamAnalysisReport {
+        PostStreamAnalysisReport(
+            id: id,
+            title: title,
+            broadcastID: broadcastID,
+            analysisJobID: analysisJobID,
+            durationSec: durationSec,
+            analysisStatus: analysisStatus,
+            summary: summary,
+            strengths: strengths,
+            weaknesses: weaknesses,
+            actionItems: actionItems,
+            totalReplacedFaceCount: totalReplacedFaceCount,
+            maxSimultaneousCrowdCount: maxSimultaneousCrowdCount,
+            highlightCount: highlightMoments.count,
+            peakViewerCount: peakViewerCount,
+            peakOccurredAtLabel: peakOccurredAtLabel,
+            peakSceneDescription: peakSceneDescription,
+            contentRatios: contentRatios,
+            highlightMoments: highlightMoments,
+            generatedAt: generatedAt,
+            recordingURL: recordingURL
+        )
+    }
+}

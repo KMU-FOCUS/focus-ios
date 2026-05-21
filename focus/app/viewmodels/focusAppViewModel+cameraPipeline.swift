@@ -130,6 +130,7 @@ extension FocusAppViewModel {
                 guard let self else { return }
                 Task { @MainActor in
                     let finishedSessionID = self.sessionID
+                    let finishedBroadcastID = self.activeBroadcastID ?? self.activeBroadcastSession?.broadcastID
                     self.isRecording = false
                     self.metadataConnected = false
                     self.sessionID = nil
@@ -147,11 +148,28 @@ extension FocusAppViewModel {
 
                     await self.stopRemoteBroadcastIfNeeded()
 
+                    let latestAnalysisResult = await self.fetchLatestBroadcastAnalysisResultWithPollingIfNeeded(
+                        broadcastID: finishedBroadcastID
+                    )
+                    let highlightCandidates = await self.fetchBroadcastHighlightCandidatesIfNeeded(
+                        broadcastID: finishedBroadcastID
+                    )
+                    self.updateAnalysisDebugPayload(
+                        latestAnalysisResult: latestAnalysisResult,
+                        highlightCandidates: highlightCandidates
+                    )
+
                     if let finishedSessionID {
                         await self.closeRemoteSessionIfNeeded(sessionID: finishedSessionID)
                     }
 
-                    await self.presentPostStreamReport(from: outputs)
+                    await self.presentPostStreamReport(
+                        from: outputs,
+                        sessionID: finishedSessionID,
+                        broadcastID: finishedBroadcastID,
+                        latestAnalysisResult: latestAnalysisResult,
+                        highlightCandidates: highlightCandidates
+                    )
                 }
             }
 
@@ -159,11 +177,7 @@ extension FocusAppViewModel {
                 self?.refreshOwnerProfiles(showSuccessIfPending: true)
             }
 
-            pipeline.onLiveBroadcastFirstVideoFrame = { [weak self] in
-                Task { @MainActor in
-                    self?.confirmPreparedRemoteBroadcastStartIfNeeded()
-                }
-            }
+            pipeline.onLiveBroadcastFirstVideoFrame = nil
 
             self.pipelineController = pipeline
         } catch {

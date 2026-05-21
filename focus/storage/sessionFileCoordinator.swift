@@ -60,6 +60,36 @@ final class SessionFileCoordinator {
         return baseDirectory.appendingPathComponent("focus_\(sessionID)_avatar_delivery.mp4")
     }
 
+    func makeAnalysisDebugOutputURL(sessionID: String) throws -> URL {
+        let baseDirectory = try ensureDirectory(
+            documentsDirectory()
+                .appendingPathComponent("Focus", isDirectory: true)
+                .appendingPathComponent("AnalysisDebug", isDirectory: true)
+        )
+
+        return baseDirectory.appendingPathComponent("focus_\(sessionID)_analysis_debug.json")
+    }
+
+    func makeLatestAnalysisDebugOutputURL(sessionID: String) throws -> URL {
+        let baseDirectory = try ensureDirectory(
+            documentsDirectory()
+                .appendingPathComponent("Focus", isDirectory: true)
+                .appendingPathComponent("AnalysisDebug", isDirectory: true)
+        )
+
+        return baseDirectory.appendingPathComponent("focus_\(sessionID)_latest_analysis.json")
+    }
+
+    func makeHighlightCandidatesDebugOutputURL(sessionID: String) throws -> URL {
+        let baseDirectory = try ensureDirectory(
+            documentsDirectory()
+                .appendingPathComponent("Focus", isDirectory: true)
+                .appendingPathComponent("AnalysisDebug", isDirectory: true)
+        )
+
+        return baseDirectory.appendingPathComponent("focus_\(sessionID)_highlight_candidates.json")
+    }
+
     func ownerSnapshotsDirectory() throws -> URL {
         let cacheDirectory = preferredURL(for: .cachesDirectory) ?? documentsDirectory()
         return try ensureDirectory(cacheDirectory.appendingPathComponent("owner_snapshots", isDirectory: true))

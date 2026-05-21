@@ -11,6 +11,7 @@ struct PostStreamReportSummarySheetView: View {
     let report: PostStreamAnalysisReport
     let avatarVideoURL: URL?
     let avatarSchemaURL: URL?
+    let analysisDebugPayloadText: String?
     let onClose: () -> Void
 
     @State private var isShareSheetPresented = false
@@ -26,6 +27,9 @@ struct PostStreamReportSummarySheetView: View {
                 bulletSection("아쉬운 점", items: report.weaknesses, accent: ReportTheme.warning)
                 bulletSection("다음 방송 팁", items: report.actionItems, accent: ReportTheme.primary)
                 statsRow
+                if let analysisDebugPayloadText, !analysisDebugPayloadText.isEmpty {
+                    analysisDebugSection(analysisDebugPayloadText)
+                }
                 if avatarVideoURL != nil || avatarSchemaURL != nil {
                     avatarDeliverySection(
                         videoURL: avatarVideoURL,
@@ -205,6 +209,40 @@ struct PostStreamReportSummarySheetView: View {
                 subtitle: "추천 구간"
             )
         }
+    }
+
+    func analysisDebugSection(_ payload: String) -> some View {
+        VStack(alignment: .leading, spacing: 12) {
+            Text("분석 응답 JSON")
+                .font(.system(size: 15, weight: .bold, design: .rounded))
+                .foregroundStyle(ReportTheme.text)
+
+            Text("최신 분석 결과와 하이라이트 후보 원본을 그대로 확인할 수 있습니다.")
+                .font(.system(size: 13, weight: .medium, design: .rounded))
+                .foregroundStyle(ReportTheme.text.opacity(0.60))
+
+            ScrollView(.horizontal, showsIndicators: true) {
+                Text(payload)
+                    .font(.system(size: 12, weight: .regular, design: .monospaced))
+                    .foregroundStyle(ReportTheme.text.opacity(0.82))
+                    .textSelection(.enabled)
+                    .frame(maxWidth: .infinity, alignment: .leading)
+            }
+            .padding(14)
+            .background(
+                RoundedRectangle(cornerRadius: 18, style: .continuous)
+                    .fill(ReportTheme.surfaceMuted)
+            )
+        }
+        .padding(18)
+        .background(
+            RoundedRectangle(cornerRadius: 22, style: .continuous)
+                .fill(.white)
+        )
+        .overlay(
+            RoundedRectangle(cornerRadius: 22, style: .continuous)
+                .stroke(ReportTheme.border, lineWidth: 1)
+        )
     }
 
     func avatarDeliverySection(videoURL: URL?, schemaURL: URL?) -> some View {
