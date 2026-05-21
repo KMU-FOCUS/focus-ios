@@ -7,6 +7,7 @@
 
 import Foundation
 import AVFoundation
+import CoreGraphics
 import CoreVideo
 
 final class FocusPipelineController {
@@ -58,6 +59,7 @@ final class FocusPipelineController {
     var liveBroadcastStreamer: SRTBroadcastStreamer?
     private let timestampCorrector: MonotonicTimestampCorrector?
     private let maskRenderer: PrivacyMaskRenderer?
+    private let liveBroadcastRotationRenderer = PixelBufferRotationRenderer()
     private let metadataRepository: MetadataFrameWriting?
     private let sessionFileCoordinator: SessionFileCoordinator?
     private let syncMonitor: AudioVideoSyncMonitor?
@@ -75,6 +77,7 @@ final class FocusPipelineController {
     private var manualOwnerRegistrationLastAttemptAt: [Int: Date] = [:]
     private var soleOwnerVisibilityLock: SoleOwnerVisibilityLock?
     private var hasDeliveredLiveBroadcastFirstVideoFrame = false
+    private var hasLoggedLiveBroadcastRotation = false
 
     init(
         frameProcessor: FocusFrameProcessor,
@@ -119,6 +122,7 @@ final class FocusPipelineController {
         self.frameIndex = 0
         self.activeRecordingURL = nil
         self.hasDeliveredLiveBroadcastFirstVideoFrame = false
+        self.hasLoggedLiveBroadcastRotation = false
         metadataRepository?.startSession(sessionID: sessionID)
         timestampCorrector?.reset()
         syncMonitor?.reset()
@@ -599,21 +603,47 @@ final class FocusPipelineController {
         }
 
         if let liveBroadcastStreamer,
-           let sourceSampleBuffer,
-           let videoSampleBuffer = VideoSampleBufferFactory.makeSampleBuffer(
+           let sourceSampleBuffer {
+            let rotatedLiveBroadcastPixelBuffer = liveBroadcastRotationRenderer.makeRotatedPixelBuffer(
                 from: recordingPixelBuffer,
+                degrees: FocusConstants.liveBroadcastRotationDegrees
+            )
+            let liveBroadcastPixelBuffer = rotatedLiveBroadcastPixelBuffer ?? recordingPixelBuffer
+            if rotatedLiveBroadcastPixelBuffer == nil && !hasLoggedLiveBroadcastRotation {
+                FocusLogger.warning(
+                    "라이브 송출 프레임 회전 적용 실패: 원본 버퍼를 그대로 사용합니다.",
+                    category: .streaming
+                )
+            }
+            if let videoSampleBuffer = VideoSampleBufferFactory.makeSampleBuffer(
+                from: liveBroadcastPixelBuffer,
                 timingSource: sourceSampleBuffer
-           ) {
-            if !hasDeliveredLiveBroadcastFirstVideoFrame {
-                hasDeliveredLiveBroadcastFirstVideoFrame = true
-                DispatchQueue.main.async { [weak self] in
-                    self?.onLiveBroadcastFirstVideoFrame?()
+            ) {
+                if !hasLoggedLiveBroadcastRotation {
+                    hasLoggedLiveBroadcastRotation = true
+                    FocusLogger.info(
+                        """
+                        라이브 송출 프레임 회전 적용: source=\(CVPixelBufferGetWidth(recordingPixelBuffer))x\(CVPixelBufferGetHeight(recordingPixelBuffer)), rotated=\(CVPixelBufferGetWidth(liveBroadcastPixelBuffer))x\(CVPixelBufferGetHeight(liveBroadcastPixelBuffer)), degrees=\(FocusConstants.liveBroadcastRotationDegrees)
+                        """,
+                        category: .streaming
+                    )
                 }
+                if !hasDeliveredLiveBroadcastFirstVideoFrame {
+                    hasDeliveredLiveBroadcastFirstVideoFrame = true
+                    DispatchQueue.main.async { [weak self] in
+                        self?.onLiveBroadcastFirstVideoFrame?()
+                    }
+                }
+                encoderQueue.async {
+                    liveBroadcastStreamer.appendVideo(videoSampleBuffer)
+                }
+                return
             }
-            encoderQueue.async {
-                liveBroadcastStreamer.appendVideo(videoSampleBuffer)
-            }
-            return
+
+            FocusLogger.warning(
+                "라이브 송출용 video sampleBuffer 생성 실패",
+                category: .streaming
+            )
         }
 
         guard let recorder else { return }

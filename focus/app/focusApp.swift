@@ -7,6 +7,7 @@
 
 import SwiftUI
 import UIKit
+import AVFoundation
 
 @main
 struct FocusApp: App {
@@ -73,6 +74,7 @@ final class FocusAppDelegate: NSObject, UIApplicationDelegate {
         didFinishLaunchingWithOptions launchOptions: [UIApplication.LaunchOptionsKey: Any]? = nil
     ) -> Bool {
         KakaoSDKRuntime.initializeIfPossible(appKey: KakaoAuthConfiguration.nativeAppKey)
+        configureBroadcastAudioSession()
         return true
     }
 
@@ -89,6 +91,43 @@ final class FocusAppDelegate: NSObject, UIApplicationDelegate {
         options: [UIApplication.OpenURLOptionsKey: Any] = [:]
     ) -> Bool {
         KakaoSDKRuntime.handleOpenURL(url)
+    }
+
+    private func configureBroadcastAudioSession() {
+        let audioSession = AVAudioSession.sharedInstance()
+
+        do {
+            try audioSession.setCategory(
+                .playAndRecord,
+                mode: .videoRecording,
+                options: [.defaultToSpeaker, .allowBluetooth]
+            )
+            try audioSession.setPreferredSampleRate(FocusConstants.srtAudioSampleRate)
+            try audioSession.setActive(true, options: [])
+
+            if (audioSession.availableInputs?.isEmpty == false) {
+                do {
+                    try audioSession.setPreferredInputNumberOfChannels(
+                        FocusConstants.srtAudioChannelCount
+                    )
+                } catch {
+                    FocusLogger.warning(
+                        "AVAudioSession 입력 채널 선호값 설정 실패(무시): \(error.localizedDescription)",
+                        category: .streaming
+                    )
+                }
+            }
+
+            FocusLogger.info(
+                "AVAudioSession 설정 완료: sampleRate=\(audioSession.sampleRate), inputChannels=\(audioSession.inputNumberOfChannels), outputChannels=\(audioSession.outputNumberOfChannels)",
+                category: .streaming
+            )
+        } catch {
+            FocusLogger.warning(
+                "AVAudioSession 설정 실패: \(error.localizedDescription)",
+                category: .streaming
+            )
+        }
     }
 }
 

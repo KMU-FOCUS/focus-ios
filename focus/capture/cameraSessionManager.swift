@@ -123,6 +123,7 @@ final class CameraSessionManager: NSObject, ObservableObject {
             session.commitConfiguration()
         }
 
+        session.automaticallyConfiguresApplicationAudioSession = false
         session.sessionPreset = .high
 
         // 기존 입출력 정리
