@@ -12,6 +12,7 @@
 		361819C62F5C8B1C003BF757 /* GRPCCore in Frameworks */ = {isa = PBXBuildFile; productRef = 361819C52F5C8B1C003BF757 /* GRPCCore */; };
 		361819C82F5C8B1C003BF757 /* GRPCInProcessTransport in Frameworks */ = {isa = PBXBuildFile; productRef = 361819C72F5C8B1C003BF757 /* GRPCInProcessTransport */; };
 		361BDEDC2F5E9E2800AAACD2 /* opencv2.framework in Frameworks */ = {isa = PBXBuildFile; fileRef = 361BDEDB2F5E9E2800AAACD2 /* opencv2.framework */; };
+		36AB11022F99000100AAB001 /* GRPCNIOTransportHTTP2 in Frameworks */ = {isa = PBXBuildFile; productRef = 36AB11012F99000100AAB001 /* GRPCNIOTransportHTTP2 */; };
 		36AA00102F75000100AAB001 /* SRTHaishinKit in Frameworks */ = {isa = PBXBuildFile; productRef = 36AA00112F75000100AAB001 /* SRTHaishinKit */; };
 		6F0AC75A71E31063FEED37D6 /* Pods_focusTests.framework in Frameworks */ = {isa = PBXBuildFile; fileRef = 77ADF1CDA14AA856B4B99D9B /* Pods_focusTests.framework */; };
 		B2432C6F82140F86F9F1B754 /* Pods_focus.framework in Frameworks */ = {isa = PBXBuildFile; fileRef = BD2F11FC8F3676AFF24DA6FE /* Pods_focus.framework */; };
@@ -55,8 +56,6 @@
 			isa = PBXFileSystemSynchronizedBuildFileExceptionSet;
 			membershipExceptions = (
 				inference/yunetonxxService.swift,
-				metadata/grpcMetadataStreamer.swift,
-				metadata/protoMessageBuilder.swift,
 			);
 			target = 36340CB32F5C2518002F9B5F /* focus */;
 		};
@@ -92,6 +91,7 @@
 				361819C82F5C8B1C003BF757 /* GRPCInProcessTransport in Frameworks */,
 				361819C62F5C8B1C003BF757 /* GRPCCore in Frameworks */,
 				36AA00102F75000100AAB001 /* SRTHaishinKit in Frameworks */,
+				36AB11022F99000100AAB001 /* GRPCNIOTransportHTTP2 in Frameworks */,
 				361BDEDC2F5E9E2800AAACD2 /* opencv2.framework in Frameworks */,
 				B2432C6F82140F86F9F1B754 /* Pods_focus.framework in Frameworks */,
 			);
@@ -186,6 +186,7 @@
 			name = focus;
 			packageProductDependencies = (
 				36AA00112F75000100AAB001 /* SRTHaishinKit */,
+				36AB11012F99000100AAB001 /* GRPCNIOTransportHTTP2 */,
 			);
 			productName = focus;
 			productReference = 36340CB42F5C2518002F9B5F /* focus.app */;
@@ -269,7 +270,8 @@
 			minimizedProjectReferenceProxies = 1;
 			packageReferences = (
 				361819C22F5C8B1C003BF757 /* XCRemoteSwiftPackageReference "grpc-swift" */,
-				36AA00122F75000100AAB001 /* XCRemoteSwiftPackageReference "HaishinKit.swift" */,
+				36AB11032F99000100AAB001 /* XCRemoteSwiftPackageReference "grpc-swift-nio-transport" */,
+				36AA00122F75000100AAB001 /* XCLocalSwiftPackageReference "Vendor/HaishinKit.swift" */,
 			);
 			preferredProjectObjectVersion = 77;
 			productRefGroup = 36340CB52F5C2518002F9B5F /* Products */;
@@ -775,6 +777,13 @@
 		};
 /* End XCConfigurationList section */
 
+/* Begin XCLocalSwiftPackageReference section */
+		36AA00122F75000100AAB001 /* XCLocalSwiftPackageReference "Vendor/HaishinKit.swift" */ = {
+			isa = XCLocalSwiftPackageReference;
+			relativePath = Vendor/HaishinKit.swift;
+		};
+/* End XCLocalSwiftPackageReference section */
+
 /* Begin XCRemoteSwiftPackageReference section */
 		361819C22F5C8B1C003BF757 /* XCRemoteSwiftPackageReference "grpc-swift" */ = {
 			isa = XCRemoteSwiftPackageReference;
@@ -784,12 +793,12 @@
 				minimumVersion = 2.2.3;
 			};
 		};
-		36AA00122F75000100AAB001 /* XCRemoteSwiftPackageReference "HaishinKit.swift" */ = {
+		36AB11032F99000100AAB001 /* XCRemoteSwiftPackageReference "grpc-swift-nio-transport" */ = {
 			isa = XCRemoteSwiftPackageReference;
-			repositoryURL = "https://github.com/shogo4405/HaishinKit.swift.git";
+			repositoryURL = "https://github.com/grpc/grpc-swift-nio-transport.git";
 			requirement = {
-				kind = exactVersion;
-				version = 2.0.1;
+				kind = upToNextMajorVersion;
+				minimumVersion = 1.0.0;
 			};
 		};
 /* End XCRemoteSwiftPackageReference section */
@@ -810,9 +819,14 @@
 			package = 361819C22F5C8B1C003BF757 /* XCRemoteSwiftPackageReference "grpc-swift" */;
 			productName = GRPCInProcessTransport;
 		};
+		36AB11012F99000100AAB001 /* GRPCNIOTransportHTTP2 */ = {
+			isa = XCSwiftPackageProductDependency;
+			package = 36AB11032F99000100AAB001 /* XCRemoteSwiftPackageReference "grpc-swift-nio-transport" */;
+			productName = GRPCNIOTransportHTTP2;
+		};
 		36AA00112F75000100AAB001 /* SRTHaishinKit */ = {
 			isa = XCSwiftPackageProductDependency;
-			package = 36AA00122F75000100AAB001 /* XCRemoteSwiftPackageReference "HaishinKit.swift" */;
+			package = 36AA00122F75000100AAB001 /* XCLocalSwiftPackageReference "Vendor/HaishinKit.swift" */;
 			productName = SRTHaishinKit;
 		};
 /* End XCSwiftPackageProductDependency section */
