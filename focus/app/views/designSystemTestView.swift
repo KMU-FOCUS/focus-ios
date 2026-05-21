@@ -64,6 +64,7 @@ struct DesignSystemTestView: View {
                     report: report,
                     avatarVideoURL: viewModel.lastAvatarVideoURL,
                     avatarSchemaURL: viewModel.lastAvatarSchemaURL,
+                    analysisDebugPayloadText: viewModel.latestAnalysisDebugPayloadText,
                     onClose: { viewModel.dismissCompletedStreamReport() }
                 )
             }
@@ -248,6 +249,11 @@ private extension DesignSystemTestView {
             broadcastDebugRow(
                 label: "startFailure",
                 value: viewModel.displayBroadcastStartFailureReasonText
+            )
+
+            broadcastDebugRow(
+                label: "transport",
+                value: viewModel.displayBroadcastTransportStateText
             )
         }
         .padding(.horizontal, 14)

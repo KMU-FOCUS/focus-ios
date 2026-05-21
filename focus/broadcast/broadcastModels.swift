@@ -22,6 +22,17 @@ struct BroadcastSession: Equatable {
     let endedAt: String?
 }
 
+struct BroadcastPage: Equatable {
+    let content: [BroadcastSession]
+    let totalElements: Int
+    let totalPages: Int
+    let size: Int
+    let number: Int
+    let first: Bool
+    let last: Bool
+    let empty: Bool
+}
+
 struct PreparedBroadcastSession: Equatable {
     let broadcast: BroadcastSession
     let accessToken: String
@@ -33,6 +44,10 @@ struct CreateBroadcastRequestDTO: Encodable {
 
 struct StartBroadcastRequestDTO: Encodable {
     let avatarId: String?
+}
+
+struct UpdateBroadcastRequestDTO: Encodable {
+    let title: String
 }
 
 struct BroadcastResponseDTO: Decodable {
@@ -50,6 +65,17 @@ struct BroadcastResponseDTO: Decodable {
     let endedAt: String?
 }
 
+struct BroadcastPageResponseDTO: Decodable {
+    let content: [BroadcastResponseDTO]
+    let totalElements: Int
+    let totalPages: Int
+    let size: Int
+    let number: Int
+    let first: Bool
+    let last: Bool
+    let empty: Bool
+}
+
 extension BroadcastResponseDTO {
     func toDomain() -> BroadcastSession {
         BroadcastSession(
@@ -65,6 +91,21 @@ extension BroadcastResponseDTO {
             memberID: memberId,
             startedAt: startedAt,
             endedAt: endedAt
+        )
+    }
+}
+
+extension BroadcastPageResponseDTO {
+    func toDomain() -> BroadcastPage {
+        BroadcastPage(
+            content: content.map { $0.toDomain() },
+            totalElements: totalElements,
+            totalPages: totalPages,
+            size: size,
+            number: number,
+            first: first,
+            last: last,
+            empty: empty
         )
     }
 }

@@ -10,18 +10,30 @@ import CoreGraphics
 
 enum FocusConstants {
     static let enableRemoteSessionLifecycle = false
-    static let enableRemoteMetadataStream = false
+    static let enableRemoteMetadataStream = true
     static let enableRemoteKakaoServerLogin = true
     static let enableRemoteBroadcastLifecycle = true
+    static let enableRemoteBroadcastAnalysisJobCreation = true
     static let serverBaseURLString = "https://api.focus.ai.kr/"
-    static let metadataGRPCHost = "3.35.202.126"
-    static let metadataGRPCPort = 50051
-    static let metadataGRPCUseTLS = false
+    static let metadataGRPCHost = "api.focus.ai.kr"
+    static let metadataGRPCPort = 443
+    static let metadataGRPCUseTLS = true
     static let mediaMtxHost = "13.125.126.120"
     static let mediaMtxPort = 8890
     static let defaultBroadcastTitle = "FOCUS Live"
     static let defaultBroadcastAvatarID = "avatar-a"
+    static let defaultBroadcastAnalysisStorageProvider = "S3"
     static let remoteBroadcastStartDelayMs: UInt64 = 2_000
+    static let remoteBroadcastHeartbeatMaxFailures: Int = 3
+    static let remoteBroadcastStartMinimumVideoFrames: Int = 30
+    static let srtVideoWidth: Int = 1280
+    static let srtVideoHeight: Int = 720
+    static let srtVideoBitRate: Int = 6_000_000
+    static let srtAudioBitRate: Int = 128_000
+    static let srtAudioSampleRate: Double = 44_100
+    static let srtAudioChannelCount: Int = 1
+    static let srtVideoKeyFrameIntervalSeconds: Int32 = 1
+    static let liveBroadcastRotationDegrees: CGFloat = 90
 
     static let yunetShortSide: CGFloat = 360
     static let yunetScoreThreshold: Float = 0.5

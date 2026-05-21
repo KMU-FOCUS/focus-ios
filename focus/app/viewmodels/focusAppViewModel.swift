@@ -36,10 +36,12 @@ final class FocusAppViewModel: ObservableObject {
     @Published var completedStreamReport: PostStreamAnalysisReport?
     @Published var archivedStreamReports: [PostStreamAnalysisReport] = []
     @Published var isReportArchivePresented: Bool = false
+    @Published var latestAnalysisDebugPayloadText: String?
     @Published var activeBroadcastID: String?
     @Published var activeBroadcastOutputMode: String?
     @Published var activeBroadcastWatchURLText: String?
     @Published var activeBroadcastStartFailureReason: String?
+    @Published var activeBroadcastTransportStateText: String?
 
     let cameraManager = CameraSessionManager()
 
@@ -66,6 +68,14 @@ final class FocusAppViewModel: ObservableObject {
 
         return BroadcastAPIClient(baseURL: baseURL)
     }()
+    lazy var broadcastAnalysisAPIClient: BroadcastAnalysisAPIClient? = {
+        guard FocusConstants.enableRemoteBroadcastAnalysisJobCreation,
+              let baseURL = URL(string: FocusConstants.serverBaseURLString) else {
+            return nil
+        }
+
+        return BroadcastAnalysisAPIClient(baseURL: baseURL)
+    }()
     lazy var accountAPIClient: AccountAPIClient? = {
         guard FocusConstants.enableRemoteBroadcastLifecycle,
               let baseURL = URL(string: FocusConstants.serverBaseURLString) else {
@@ -76,7 +86,23 @@ final class FocusAppViewModel: ObservableObject {
     }()
     lazy var metadataRepository: MetadataFrameWriting = {
         let localRepository = JSONMetadataRepository(fileCoordinator: fileCoordinator)
-        return MultiplexMetadataRepository(localRepository: localRepository)
+        let sideEffect: (any MetadataSessionSideEffecting)? =
+            FocusConstants.enableRemoteMetadataStream
+            ? GRPCMetadataSessionSideEffect(
+                host: FocusConstants.metadataGRPCHost,
+                port: FocusConstants.metadataGRPCPort,
+                useTLS: FocusConstants.metadataGRPCUseTLS,
+                onConnectionStateChanged: { [weak self] isConnected in
+                    Task { @MainActor [weak self] in
+                        self?.metadataConnected = isConnected
+                    }
+                }
+            )
+            : nil
+        return MultiplexMetadataRepository(
+            localRepository: localRepository,
+            sideEffect: sideEffect
+        )
     }()
     let syncMonitor = AudioVideoSyncMonitor()
     let imagePreprocessor = ImagePreprocessor.shared
@@ -120,7 +146,8 @@ final class FocusAppViewModel: ObservableObject {
         activeBroadcastSession != nil ||
         activeBroadcastOutputMode != nil ||
         activeBroadcastWatchURLText != nil ||
-        activeBroadcastStartFailureReason != nil
+        activeBroadcastStartFailureReason != nil ||
+        activeBroadcastTransportStateText != nil
     }
 
     var displayBroadcastOutputModeText: String {
@@ -150,6 +177,17 @@ final class FocusAppViewModel: ObservableObject {
         }
         if preparedBroadcastSession != nil {
             return "아직 없음"
+        }
+        return "-"
+    }
+
+    var displayBroadcastTransportStateText: String {
+        if let transportStateText = activeBroadcastTransportStateText,
+           !transportStateText.isEmpty {
+            return transportStateText
+        }
+        if preparedBroadcastSession != nil {
+            return "PREPARING"
         }
         return "-"
     }
@@ -250,10 +288,12 @@ final class FocusAppViewModel: ObservableObject {
             self.lastMetadataURL = nil
             self.lastAvatarVideoURL = nil
             self.lastAvatarSchemaURL = nil
+            self.metadataConnected = !FocusConstants.enableRemoteMetadataStream
             self.activeBroadcastID = nil
             self.activeBroadcastOutputMode = nil
             self.activeBroadcastWatchURLText = nil
             self.activeBroadcastStartFailureReason = nil
+            self.activeBroadcastTransportStateText = nil
 
             do {
                 let remoteStreamer = try await self.prepareRemoteBroadcastIfNeeded()
@@ -276,7 +316,6 @@ final class FocusAppViewModel: ObservableObject {
 
             self.isRunning = true
             self.isRecording = true
-            self.metadataConnected = true
             self.sessionID = newSessionID
 
             self.startPreviewIfPossible()

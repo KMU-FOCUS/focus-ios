@@ -47,9 +47,20 @@ extension FocusAppViewModel {
             )
         }
 
+        FocusLogger.info(
+            "방송 준비 시작: privacyMode=\(privacyMode.rawValue), remoteMetadataStream=\(FocusConstants.enableRemoteMetadataStream)",
+            category: .network
+        )
+
         let createdBroadcast = try await broadcastAPIClient.createBroadcast(
             title: FocusConstants.defaultBroadcastTitle,
             accessToken: accessToken
+        )
+        FocusLogger.info(
+            """
+            createBroadcast 응답: broadcastId=\(createdBroadcast.broadcastID), status=\(createdBroadcast.status), outputMode=\(createdBroadcast.outputMode), watchUrl=\(createdBroadcast.watchURL?.absoluteString ?? "nil"), hlsUrl=\(createdBroadcast.hlsURL?.absoluteString ?? "nil")
+            """,
+            category: .network
         )
         guard !createdBroadcast.streamKey.isEmpty else {
             throw NSError(
@@ -60,6 +71,16 @@ extension FocusAppViewModel {
         }
 
         let streamer = SRTBroadcastStreamer()
+        streamer.onStateChanged = { [weak self] state in
+            Task { @MainActor in
+                self?.handleBroadcastTransportStateChanged(state)
+            }
+        }
+        streamer.onVideoFrameAppended = { [weak self] count, ptsUs in
+            Task { @MainActor in
+                self?.handleBroadcastVideoFrameAppended(count: count, ptsUs: ptsUs)
+            }
+        }
         try await streamer.start(
             host: FocusConstants.mediaMtxHost,
             port: FocusConstants.mediaMtxPort,
@@ -80,6 +101,7 @@ extension FocusAppViewModel {
         activeBroadcastWatchURLText =
             createdBroadcast.watchURL?.absoluteString ?? createdBroadcast.hlsURL?.absoluteString
         activeBroadcastStartFailureReason = createdBroadcast.lastStartFailureReason
+        activeBroadcastTransportStateText = streamer.state.debugText
         return streamer
     }
 
@@ -95,9 +117,11 @@ extension FocusAppViewModel {
             guard let self else { return }
 
             do {
-                try await Task.sleep(
-                    nanoseconds: FocusConstants.remoteBroadcastStartDelayMs * 1_000_000
-                )
+                if FocusConstants.remoteBroadcastStartDelayMs > 0 {
+                    try await Task.sleep(
+                        nanoseconds: FocusConstants.remoteBroadcastStartDelayMs * 1_000_000
+                    )
+                }
             } catch {
                 self.preparedBroadcastStartTask = nil
                 return
@@ -112,10 +136,20 @@ extension FocusAppViewModel {
             }
 
             do {
+                let avatarID = try await self.resolvedBroadcastAvatarID(
+                    broadcastAPIClient: broadcastAPIClient,
+                    accessToken: prepared.accessToken
+                )
                 let startedBroadcast = try await broadcastAPIClient.startBroadcast(
                     broadcastID: prepared.broadcast.broadcastID,
-                    avatarID: resolvedBroadcastAvatarID(),
+                    avatarID: avatarID,
                     accessToken: prepared.accessToken
+                )
+                FocusLogger.info(
+                    """
+                    startBroadcast 응답: broadcastId=\(startedBroadcast.broadcastID), status=\(startedBroadcast.status), outputMode=\(startedBroadcast.outputMode), avatarId=\(avatarID ?? "nil"), watchUrl=\(startedBroadcast.watchURL?.absoluteString ?? "nil"), hlsUrl=\(startedBroadcast.hlsURL?.absoluteString ?? "nil"), lastStartFailureReason=\(startedBroadcast.lastStartFailureReason ?? "nil")
+                    """,
+                    category: .network
                 )
 
                 self.activeBroadcastSession = startedBroadcast
@@ -145,10 +179,31 @@ extension FocusAppViewModel {
         }
     }
 
-    private func resolvedBroadcastAvatarID() -> String? {
+    private func resolvedBroadcastAvatarID(
+        broadcastAPIClient: BroadcastAPIClient,
+        accessToken: String
+    ) async throws -> String? {
         switch privacyMode {
         case .avatar:
-            return FocusConstants.defaultBroadcastAvatarID
+            let avatarIDs = try await broadcastAPIClient.fetchAvailableAvatarIDs(
+                accessToken: accessToken
+            )
+            FocusLogger.info(
+                "avatar 목록 조회 성공: count=\(avatarIDs.count), values=\(avatarIDs)",
+                category: .network
+            )
+            guard let avatarID = avatarIDs.first, !avatarID.isEmpty else {
+                throw NSError(
+                    domain: "FocusBroadcast",
+                    code: -14,
+                    userInfo: [NSLocalizedDescriptionKey: "사용 가능한 아바타가 없습니다."]
+                )
+            }
+            FocusLogger.info(
+                "avatar 모드 아바타 선택: \(avatarID)",
+                category: .network
+            )
+            return avatarID
         case .mosaic, .disabled:
             return nil
         }
@@ -187,12 +242,14 @@ extension FocusAppViewModel {
         activeBroadcastOutputMode = nil
         activeBroadcastWatchURLText = nil
         activeBroadcastStartFailureReason = nil
+        activeBroadcastTransportStateText = nil
     }
 
     private func startBroadcastHeartbeat(accessToken: String, broadcastID: String) {
         broadcastHeartbeatTask?.cancel()
         broadcastHeartbeatTask = Task { [weak self] in
             guard let self else { return }
+            var consecutiveFailures = 0
 
             while !Task.isCancelled {
                 try? await Task.sleep(nanoseconds: 10_000_000_000)
@@ -206,13 +263,52 @@ extension FocusAppViewModel {
                         broadcastID: broadcastID,
                         accessToken: accessToken
                     )
+                    consecutiveFailures = 0
                 } catch {
+                    consecutiveFailures += 1
                     FocusLogger.warning(
-                        "streamer heartbeat 실패: \(error.localizedDescription)",
+                        "streamer heartbeat 실패(\(consecutiveFailures)): \(error.localizedDescription)",
                         category: .network
                     )
+                    if consecutiveFailures >= FocusConstants.remoteBroadcastHeartbeatMaxFailures {
+                        self.broadcastHeartbeatTask?.cancel()
+                        break
+                    }
                 }
             }
+        }
+    }
+
+    private func handleBroadcastTransportStateChanged(_ state: SRTBroadcastStreamer.State) {
+        activeBroadcastTransportStateText = state.debugText
+        FocusLogger.info("SRT transport 상태: \(state.debugText)", category: .network)
+    }
+
+    private func handleBroadcastVideoFrameAppended(count: Int, ptsUs: Int64?) {
+        guard count == FocusConstants.remoteBroadcastStartMinimumVideoFrames else {
+            return
+        }
+        FocusLogger.info(
+            "SRT video 프레임 임계치 도달: count=\(count), ptsUs=\(ptsUs.map(String.init) ?? "nil")",
+            category: .network
+        )
+        confirmPreparedRemoteBroadcastStartIfNeeded()
+    }
+}
+
+private extension SRTBroadcastStreamer.State {
+    var debugText: String {
+        switch self {
+        case .idle:
+            return "IDLE"
+        case .connecting:
+            return "CONNECTING"
+        case .connected:
+            return "CONNECTED"
+        case .failed(let message):
+            return "FAILED: \(message)"
+        case .closed:
+            return "CLOSED"
         }
     }
 }

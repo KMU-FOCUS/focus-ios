@@ -8,9 +8,40 @@
 import Foundation
 import CoreGraphics
 
+struct FaceMetadataPushRequest: Sendable {
+    let sessionID: String
+    let ptsUs: Int64
+    let faces: [FaceMetadataFaceEntry]
+}
+
+struct FaceMetadataFaceEntry: Sendable {
+    let trackingID: Int32
+    let bbox: FaceMetadataBoundingBox
+    let tdmmRaw: FaceMetadataTdmmRaw
+}
+
+struct FaceMetadataBoundingBox: Sendable {
+    let x: Int32
+    let y: Int32
+    let width: Int32
+    let height: Int32
+}
+
+struct FaceMetadataTdmmRaw: Sendable {
+    let coeffs: [Float]
+}
+
+struct FaceMetadataPushResponse: Sendable {
+    let success: Bool
+    let receivedFrames: Int64
+    let acceptedFrames: Int64
+    let droppedFrames: Int64
+    let lastPtsUs: Int64
+}
+
 final class ProtoMessageBuilder {
     struct BuildResult {
-        let message: Focus_FrameMetadata
+        let message: FaceMetadataPushRequest
         let includedTrackIDs: [Int]
         let dropped: [(trackID: Int, reason: MetadataDropReason)]
     }
@@ -20,10 +51,7 @@ final class ProtoMessageBuilder {
         ptsUs: Int64,
         tracks: [TrackedFace]
     ) -> BuildResult {
-        var frame = Focus_FrameMetadata()
-        frame.sessionID = sessionID
-        frame.ptsUs = ptsUs
-
+        var faces: [FaceMetadataFaceEntry] = []
         var includedTrackIDs: [Int] = []
         var dropped: [(trackID: Int, reason: MetadataDropReason)] = []
 
@@ -42,12 +70,16 @@ final class ProtoMessageBuilder {
             }
 
             let face = makeFaceData(trackID: track.trackID, bbox: track.bbox, tdmm: tdmm)
-            frame.faces.append(face)
+            faces.append(face)
             includedTrackIDs.append(track.trackID)
         }
 
         return BuildResult(
-            message: frame,
+            message: FaceMetadataPushRequest(
+                sessionID: sessionID,
+                ptsUs: ptsUs,
+                faces: faces
+            ),
             includedTrackIDs: includedTrackIDs,
             dropped: dropped
         )
@@ -57,27 +89,25 @@ final class ProtoMessageBuilder {
         trackID: Int,
         bbox: CGRect,
         tdmm: TDMMCoefficients
-    ) -> Focus_FaceData {
-        var face = Focus_FaceData()
-        face.trackingID = Int32(trackID)
-        face.bbox = makeBBox(bbox)
-        face.tdmmRaw = makeTDMMRaw(tdmm)
-        return face
+    ) -> FaceMetadataFaceEntry {
+        FaceMetadataFaceEntry(
+            trackingID: Int32(trackID),
+            bbox: makeBBox(bbox),
+            tdmmRaw: makeTDMMRaw(tdmm)
+        )
     }
 
-    private func makeBBox(_ rect: CGRect) -> Focus_BBox {
+    private func makeBBox(_ rect: CGRect) -> FaceMetadataBoundingBox {
         let values = MetadataPolicy.clampBBoxToInt(rect)
-        var bbox = Focus_BBox()
-        bbox.x = values.x
-        bbox.y = values.y
-        bbox.width = values.width
-        bbox.height = values.height
-        return bbox
+        return FaceMetadataBoundingBox(
+            x: values.x,
+            y: values.y,
+            width: values.width,
+            height: values.height
+        )
     }
 
-    private func makeTDMMRaw(_ tdmm: TDMMCoefficients) -> Focus_ThreeDMMRaw {
-        var raw = Focus_ThreeDMMRaw()
-        raw.coeffs = tdmm.merged
-        return raw
+    private func makeTDMMRaw(_ tdmm: TDMMCoefficients) -> FaceMetadataTdmmRaw {
+        FaceMetadataTdmmRaw(coeffs: tdmm.merged)
     }
 }
