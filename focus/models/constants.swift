@@ -1,0 +1,92 @@
+//
+//  constants.swift
+//  focus
+//
+//  Created by 이동언 on 3/8/26.
+//
+
+import Foundation
+import CoreGraphics
+
+enum FocusConstants {
+    static let enableRemoteSessionLifecycle = false
+    static let enableRemoteMetadataStream = true
+    static let enableRemoteKakaoServerLogin = true
+    static let enableRemoteBroadcastLifecycle = true
+    static let enableRemoteBroadcastAnalysisJobCreation = true
+    static let serverBaseURLString = "https://api.focus.ai.kr/"
+    static let metadataGRPCHost = "api.focus.ai.kr"
+    static let metadataGRPCPort = 443
+    static let metadataGRPCUseTLS = true
+    static let mediaMtxHost = "13.125.126.120"
+    static let mediaMtxPort = 8890
+    static let defaultBroadcastTitle = "FOCUS Live"
+    static let defaultBroadcastAvatarID = "avatar-a"
+    static let defaultBroadcastAnalysisStorageProvider = "S3"
+    static let remoteBroadcastStartDelayMs: UInt64 = 2_000
+    static let remoteBroadcastHeartbeatMaxFailures: Int = 3
+    static let remoteBroadcastStartMinimumVideoFrames: Int = 30
+    static let srtVideoWidth: Int = 1280
+    static let srtVideoHeight: Int = 720
+    static let srtVideoBitRate: Int = 6_000_000
+    static let srtAudioBitRate: Int = 128_000
+    static let srtAudioSampleRate: Double = 44_100
+    static let srtAudioChannelCount: Int = 1
+    static let srtVideoKeyFrameIntervalSeconds: Int32 = 1
+    static let liveBroadcastRotationDegrees: CGFloat = 90
+
+    static let yunetShortSide: CGFloat = 360
+    static let yunetScoreThreshold: Float = 0.5
+    static let yunetNmsThreshold: Float = 0.3
+    static let yunetConfidenceThreshold: Float = 0.5
+    static let yunetTopK: Int = 5000
+
+    static let tdmmInputSize = CGSize(width: 128, height: 128)
+    static let arcFaceInputSize = CGSize(width: 112, height: 112)
+
+    static let trackIouWeight: Float = 0.6
+    static let trackCosineWeight: Float = 0.4
+    static let maxIouDistance: Float = 0.7
+    static let maxCosineDistance: Float = 0.4
+    static let maxCosineRelaxedMultiplier: Float = 1.2
+
+    static let nInit: Int = 1
+    static let maxAge: Int = 30
+
+    static let skipFrames: Int = 5
+    static let collectFrames: Int = 3
+    static let frontalThreshold: CGFloat = 0.4
+    static let ownerSimilarityThreshold: Float = 0.5
+
+    static let minEmbeddingCropSize: CGFloat = 16
+    static let minManualOwnerFaceSize: CGFloat = 16
+    static let arcFaceMinAlignmentAngleDeg: CGFloat = 1.5
+    static let ownerSnapshotRotationDegrees: CGFloat = 0
+
+    static let ownerRegistrationRetryIntervalMs: Int = 250
+    static let ownerUpgradeRetryIntervalMs: Int = 400
+    static let ownerUpgradeSimilarityThreshold: Float = 0.65
+    static let soleOwnerLockConfirmFrames: Int = 3
+    static let soleOwnerLockGraceFrames: Int = 8
+    static let soleOwnerLockTransferMaxCost: Float = 0.45
+    static let previewAnalysisStride: Int = 1
+    static let previewOverlayMaxMissedFrames: Int = 3
+    static let recordingMaskMaxMissedFrames: Int = 0
+    static let previewBoxInterpolationFactor: CGFloat = 0.36
+    static let previewOwnerLatchMemoryFrames: Int = 60
+
+    static let maxSimultaneousMaskFaces = 8
+    static let mosaicBlockSize: Int = 70
+    static let privacyMaskHorizontalBiasRatio: CGFloat = -0.08
+
+    static let ptsScaleMicroseconds: Double = 1_000_000.0
+    static let avDriftToleranceMs: Double = 40.0
+
+    static var isPlaceholderServerBaseURL: Bool {
+        guard let url = URL(string: serverBaseURLString),
+              let host = url.host?.lowercased() else {
+            return true
+        }
+        return host == "127.0.0.1" || host == "localhost"
+    }
+}
