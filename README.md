@@ -40,7 +40,6 @@ Authentication
   <img src="https://img.shields.io/badge/OAuth_2.0-EB5424?style=for-the-badge&logo=auth0&logoColor=white"/>
   <img src="https://img.shields.io/badge/Google_Login-4285F4?style=for-the-badge&logo=google&logoColor=white"/>
   <img src="https://img.shields.io/badge/Naver_Login-03C75A?style=for-the-badge&logo=naver&logoColor=white"/>
-  <img src="https://img.shields.io/badge/SOOP_Login-00AEEF?style=for-the-badge"/>
 </p>
 
 Streaming
